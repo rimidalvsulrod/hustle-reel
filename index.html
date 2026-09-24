@@ -394,21 +394,20 @@ const CATS = [
   {id:'freelance', label:'Freelance', short:'Freelance', color:'#F2E6C9', items:['Copywriting','Ghostwriting','LinkedIn Ghostwriting','Virtual Assistant','Social Media Manager','Freelance Dev','Fiverr Gigs','Upwork Freelancing','Online Tutoring','Language Teaching','Transcription','Translation','Voice Acting','Thumbnail Design','Logo Design','3D Modeling','Bookkeeping','Tax Prep','Resume Writing','Grant Writing','Bug Bounties','Cybersecurity Consulting','Automation Consulting','Online Coaching','Esports Coaching','Online Fitness Coach']},
   {id:'digital', label:'Digital products', short:'Digital', color:'#FFB38A', items:['Online Courses','Digital Products','Notion Templates','Canva Templates','Stock Photography','Stock Footage','Lightroom Presets','LUT Packs','Sample Packs','Beat Selling','Ebooks','Printables','Digital Planners','Spreadsheet Templates','Prompt Packs','AI Art Prints','Paid Communities','Membership Sites','Discord Community','Webinars','Masterminds','Game Assets','Font Design','Icon Packs','Info Products']},
   {id:'flip', label:'Flipping', short:'Flipping', color:'#FF7A6B', items:['Domain Flipping','Website Flipping','Sneaker Reselling','Ticket Reselling','Trading Cards','Collectibles','Vintage Clothing','Thrift Flipping','eBay Reselling','Depop Reselling','Marketplace Flipping','Car Flipping','Watch Flipping','Electronics Refurb','Domain Parking','Airbnb Arbitrage','Real Estate Wholesaling','Virtual Real Estate','Storage Unit Flipping','Furniture Flipping']},
-  {id:'wild', label:'Wildcards', short:'Wildcard', color:'#9FE870', items:['Affiliate Marketing','Niche Sites','Coupon Sites','Comparison Sites','Directory Sites','Job Boards','Online Marketplaces','Product Testing','Paid Surveys','Mystery Shopping','Micro-Tasks','Crowdfunding','Rent Your GPU','AI Data Labeling','Game Boosting','Esports Tournaments','Virtual Events','Online Contests']}
+  {id:'wild', label:'Wildcards', short:'Wildcard', color:'#9FE870', items:['Affiliate Marketing','Niche Sites','Coupon Sites','Comparison Sites','Directory Sites','Job Boards','Online Marketplaces','Product Testing','Paid Surveys','Mystery Shopping','Micro-Tasks','Crowdfunding','Rent Your GPU','AI Data Labeling','Game Boosting','Esports Tournaments','Virtual Events','Online Contests','Pornstar']}
 ];
 
 const ALL = []; const seen = new Set();
 CATS.forEach(c => c.items.forEach(name => { if (!seen.has(name)) { seen.add(name); ALL.push({name, cat:c}); } }));
 const TARGET = ALL.findIndex(x => x.name === 'Copy Trading');
-const TEASERS = ['Meme Coins','Dropshipping','SaaS','Day Trading','Amazon FBA','YouTube Automation','AI Automation Agency','Sneaker Reselling','Options Trading']
-  .map(n => ALL.findIndex(x => x.name === n)).filter(i => i >= 0);
+const DECOY = ALL.findIndex(x => x.name === 'Pornstar');
 
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const mod = (n, m) => ((n % m) + m) % m;
 const seq = shuffle(ALL.map((_, i) => i));
 const overrides = new Map();
 const itemAt = i => ALL[overrides.has(i) ? overrides.get(i) : seq[mod(i, seq.length)]];
-const randomOther = () => { let k; do { k = Math.random() * ALL.length | 0; } while (k === TARGET); return k; };
+const randomOther = () => { let k; do { k = Math.random() * ALL.length | 0; } while (k === TARGET || k === DECOY); return k; };
 
 /* ---------- static content ---------- */
 $('#countHead').textContent = ALL.length;
@@ -611,10 +610,10 @@ function spin() {
 
   const K = RM ? 22 + (Math.random() * 8 | 0) : 72 + (Math.random() * 30 | 0);
   const T = Math.round(pos) + K;
-  const tease = !RM && Math.random() < .5;
+  const tease = !RM;
   overrides.set(T, TARGET);
-  for (const n of [T - 2, T + 1, T + 2]) if (itemAt(n) === ALL[TARGET]) overrides.set(n, randomOther());
-  overrides.set(T - 1, tease ? TEASERS[Math.random() * TEASERS.length | 0] : (itemAt(T - 1) === ALL[TARGET] ? randomOther() : overrides.get(T - 1) ?? seq[mod(T - 1, seq.length)]));
+  for (const n of [T - 2, T + 1, T + 2]) if (itemAt(n) === ALL[TARGET] || itemAt(n) === ALL[DECOY]) overrides.set(n, randomOther());
+  overrides.set(T - 1, DECOY);
   rows.forEach(r => { r.idx = null; });
 
   state.tl = {start: performance.now(), T, segs: buildSegs(pos, T, tease), phase: null, onDone: land};
