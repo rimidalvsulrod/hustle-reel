@@ -1,122 +1,106 @@
 #!/usr/bin/env python3
-"""Build the NEQO Digital "Ultra" ($150/mo) Instagram reel.
+"""Build the NEQO Digital "Ultra" ($150/mo) Instagram reel in the style of the earlier NEQO reel.
 
-Pipeline: Gemini TTS voiceover -> detect speech chunks -> align script lines/beats
--> tighten pauses -> ASS motion-graphics overlays synced to the VO -> synthesized
-beat + ducking -> 1080x1920 H.264 MP4.
+Pipeline: Gemini TTS voiceover -> line/word timing from speech chunks -> tightened VO -> build/timeline.js
+-> scene.html rendered frame-by-frame in headless Chromium (render.cjs) -> synthesized 124 BPM tech-house
+bed + SFX (events exported by the page) + ducking -> 1080x1920 30fps H.264/AAC MP4 via ffmpeg.
 
-Usage:
-  GEMINI_API_KEY=... python3 reel/make_reel.py          # real Gemini voiceover
-  python3 reel/make_reel.py --fake-tts                   # pipeline test with tone bursts
-Env: GEMINI_TTS_MODEL (optional model override), GEMINI_VOICE (default Puck).
+Usage:  GEMINI_API_KEY=... python3 reel/make_reel.py [--regen]   (--regen re-requests the voiceover)
+Env:    GEMINI_TTS_MODEL (default: first working model in TTS_MODELS), GEMINI_VOICE (default Puck).
+Needs:  ffmpeg, node + playwright (global install), python numpy + scipy.
 """
-import base64, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request, wave
+import base64, difflib, json, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request, wave
 import numpy as np
+from scipy.signal import butter, lfilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.path.join(HERE, "build")
 OUT = os.path.join(HERE, "neqo-digital-ultra-reel.mp4")
-W, H, FPS = 1080, 1920, 30
-SR = 48000
+API = "https://generativelanguage.googleapis.com/v1beta"
+W, H, FPS, SR = 1080, 1920, 30, 48000
 VOICE = os.environ.get("GEMINI_VOICE", "Puck")
+TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"]
+LEAD, HOLD, MAX_VO = 0.35, 2.0, 27.0
 
-# Each scene = one spoken line. Each beat = one on-screen card (fast cut) synced to its spoken fragment.
-# t: main text (\N = newline, *word* = highlight), k: kicker above, sub: line below, check: tick icon.
-SCENES = [
-    [dict(s="Plumbers.", t="PLUMBERS"), dict(s="Roofers.", t="ROOFERS"), dict(s="Dentists.", t="DENTISTS"),
-     dict(s="HVAC.", t="HVAC"), dict(s="Electricians.", t="ELECTRICIANS")],
-    [dict(s="Stop losing jobs to the competition.", t="STOP LOSING\\N*JOBS*", sub="TO THE COMPETITION")],
-    [dict(s="Meet Neqo Digital's Ultra plan.", k="NEQO DIGITAL", t="THE *ULTRA*\\NPLAN")],
-    [dict(s="A full marketing team, working on your business every month.", t="A FULL\\N*MARKETING*\\NTEAM",
-          sub="WORKING FOR YOU EVERY MONTH")],
-    [dict(s="A custom website.", t="CUSTOM\\N*WEBSITE*", check=True)],
-    [dict(s="Local SEO, to rank higher on Google.", k="LOCAL SEO", t="RANK HIGHER\\NON *GOOGLE*", check=True)],
-    [dict(s="Social media, posted for you.", t="SOCIAL MEDIA\\N*POSTED*\\NFOR YOU", check=True)],
-    [dict(s="A plain-English report,", t="MONTHLY\\N*REPORT*", sub="IN PLAIN ENGLISH", check=True),
-     dict(s="and a strategy call, every month.", t="STRATEGY\\N*CALL*", sub="EVERY MONTH", check=True)],
-    [dict(s="All for just one hundred fifty dollars a month.", k="ALL FOR JUST", price=True)],
-    [dict(s="No contracts.", t="NO\\N*CONTRACTS*"), dict(s="Cancel anytime.", t="CANCEL\\N*ANYTIME*")],
-    [dict(s="Neqo Digital. Let's get you more customers.", end=True)],
+# One spoken line per scene in scene.html (matched by id). "Neeko" is the phonetic spelling of NEQO (NEE-koh).
+LINES = [
+    ("run", "You run the business."),
+    ("who", "But who's running your marketing?"),
+    ("meet", "Meet Neeko Digital Ultra."),
+    ("team", "A full marketing team, working for you every month."),
+    ("web", "A custom website."),
+    ("seo", "Local SEO to rank higher on Google."),
+    ("social", "Social media, posted for you."),
+    ("report", "Plain-English reports. Monthly strategy calls."),
+    ("live", "Live in fourteen days."),
+    ("price", "All for just one-fifty a month."),
+    ("end", "Neeko Digital. No contracts. Cancel anytime."),
 ]
-LINES = [" ".join(b["s"] for b in sc) for sc in SCENES]
-STYLE = ("Say the following in a confident, energetic, high-energy TV ad announcer voice. "
-         "Punchy, upbeat and fast-paced. Leave a short pause between each line:\n")
-
-# ASS colours are &HBBGGRR&
-NAVY, BLUE, YELLOW, WHITE, BLACK, RED = "&H2A0E0A&", "&HFF4F1F&", "&H38DCFF&", "&HFFFFFF&", "&H000000&", "&H3B3BFF&"
-# (bg, fg, highlight, shadow)
-SCHEMES = [(BLUE, WHITE, YELLOW, NAVY), (YELLOW, NAVY, BLUE, WHITE), (NAVY, WHITE, YELLOW, BLUE), (RED, WHITE, YELLOW, NAVY)]
-FONT = "Liberation Sans"
+PROMPT = """# AUDIO PROFILE: Hype announcer for a 25-second Instagram ad
+### DIRECTOR'S NOTES
+Style: confident, high-energy, upbeat male announcer with a smile in the voice; punchy emphasis on key words.
+Pace: fast, rapid-fire delivery with only a short beat between lines.
+Pronunciation: "Neeko" is pronounced NEE-koh.
+### TRANSCRIPT
+"""
 
 
-# ---------------------------------------------------------------- TTS
-def http_json(url, key, body=None):
+# ---------------------------------------------------------------- Gemini
+def api(url, body=None):
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        sys.exit("Set GEMINI_API_KEY to generate the Gemini voiceover.")
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body else None,
                                  headers={"x-goog-api-key": key, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with urllib.request.urlopen(req, timeout=300) as r:
         return json.load(r)
 
 
-def tts_models(key):
-    if os.environ.get("GEMINI_TTS_MODEL"):
-        return [os.environ["GEMINI_TTS_MODEL"]]
-    try:
-        names = [m["name"].split("/")[-1] for m in
-                 http_json("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", key)["models"]
-                 if "tts" in m["name"]]
-    except Exception as e:
-        print("model list failed:", e)
-        names = []
-    names = sorted(set(names) | {"gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"},
-                   key=lambda n: ("flash" not in n, "preview" in n, n), reverse=False)
-    return names
-
-
-def gemini_tts(prompt, path):
-    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not key:
-        sys.exit("Set GEMINI_API_KEY (Google AI Studio key) to generate the Gemini voiceover.")
-    body = {"contents": [{"parts": [{"text": prompt}]}],
+def gemini_tts(text, path):
+    models = [os.environ["GEMINI_TTS_MODEL"]] if os.environ.get("GEMINI_TTS_MODEL") else TTS_MODELS
+    body = {"contents": [{"parts": [{"text": text}]}],
             "generationConfig": {"responseModalities": ["AUDIO"],
                                  "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE}}}}}
-    last = None
-    for model in tts_models(key):
+    err = None
+    for model in models:
         for attempt in range(3):
             try:
-                print(f"Gemini TTS: model={model} voice={VOICE}")
-                r = http_json(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", key, body)
-                part = r["candidates"][0]["content"]["parts"][0]["inlineData"]
-                rate = int(re.search(r"rate=(\d+)", part.get("mimeType", "")).group(1)) if "rate=" in part.get("mimeType", "") else 24000
-                pcm = base64.b64decode(part["data"])
-                with wave.open(path, "wb") as w:
-                    w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm)
+                r = api(f"{API}/models/{model}:generateContent", body)
+                parts = r["candidates"][0].get("content", {}).get("parts")
+                if not parts:  # e.g. finishReason OTHER
+                    err = f"{model}: no audio (finishReason {r['candidates'][0].get('finishReason')})"
+                    print(err); continue
+                d = parts[0]["inlineData"]
+                data = base64.b64decode(d["data"])
+                if data[:4] == b"RIFF":
+                    open(path, "wb").write(data)
+                else:
+                    m = re.search(r"rate=(\d+)", d.get("mimeType", ""))
+                    with wave.open(path, "wb") as w:
+                        w.setnchannels(1); w.setsampwidth(2); w.setframerate(int(m[1]) if m else 24000); w.writeframes(data)
+                print(f"Gemini TTS ok: model={model} voice={VOICE}")
                 return model
             except urllib.error.HTTPError as e:
-                last = f"{model}: HTTP {e.code} {e.read()[:300]!r}"
-                print(last)
-                if e.code == 429 and attempt < 2:
-                    time.sleep(30 * (attempt + 1)); continue
+                msg = e.read()[:300]
+                err = f"{model}: HTTP {e.code} {msg!r}"; print(err)
+                if e.code in (429, 500, 503) and b"limit: 0" not in msg and attempt < 2:
+                    time.sleep(20 * (attempt + 1)); continue
                 break
-            except Exception as e:
-                last = f"{model}: {e}"; print(last); break
-    sys.exit(f"Gemini TTS failed: {last}")
+    sys.exit(f"Gemini TTS failed: {err}")
 
 
-def fake_tts(path):
-    """Tone bursts shaped like the script (for testing sync without an API key)."""
-    sr, out = 24000, []
-    for li, sc in enumerate(SCENES):
-        for bi, b in enumerate(sc):
-            d = len(b["s"]) * 0.065
-            t = np.arange(int(d * sr)) / sr
-            out += [0.3 * np.sin(2 * np.pi * (180 + 40 * li) * t) * np.minimum(1, np.minimum(t, d - t) * 40),
-                    np.zeros(int((0.18 if bi < len(sc) - 1 else 0.6) * sr))]
-    a = (np.concatenate(out) * 32767).astype(np.int16)
-    with wave.open(path, "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(a.tobytes())
+def transcribe(path):
+    body = {"contents": [{"parts": [{"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(open(path, "rb").read()).decode()}},
+                                    {"text": "Transcribe this audio verbatim. Output only the spoken words."}]}]}
+    for m in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-flash-latest"]:
+        try:
+            return api(f"{API}/models/{m}:generateContent", body)["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception as e:
+            print(f"transcribe {m}: {e}")
+    return None
 
 
-# ---------------------------------------------------------------- audio helpers
+# ---------------------------------------------------------------- VO timing
 def read_wav(path):
     with wave.open(path) as w:
         sr, n, ch = w.getframerate(), w.getnframes(), w.getnchannels()
@@ -199,7 +183,41 @@ def split_spans(chunks, texts, span):
     return [(edges[2 * i], edges[2 * i + 1]) for i in range(len(texts))]
 
 
-def tighten(a, sr, chunks, line_gap_idx, line_gap=0.26, intra_cap=0.3, lead=0.03, tail=0.06):
+def syllables(w):
+    if re.fullmatch(r"[A-Z]{2,4}\W*", w):  # acronyms are spelled out (S-E-O)
+        return len(re.sub(r"\W", "", w))
+    w = re.sub(r"[^a-z]", "", w.lower())
+    n = len(re.findall(r"[aeiouy]+", w)) or 1
+    return n - 1 if w.endswith("e") and n > 1 and not w.endswith(("le", "ee")) else n
+
+
+def word_starts(chunks, words, span):
+    """Start time per word: split the line into phrases at punctuation (aligned to pauses), then spread each
+    phrase's words over its voiced time by syllable count."""
+    phrases, cur = [], []
+    for w in words:
+        cur.append(w)
+        if re.search(r"[,.?!]$", w):
+            phrases.append(cur); cur = []
+    if cur:
+        phrases.append(cur)
+    out = []
+    for p, (s, e) in zip(phrases, split_spans(chunks, [" ".join(p) for p in phrases], span)):
+        segs = [(max(a, s), min(b, e)) for a, b in chunks if b > s and a < e] or [(s, e)]
+        voiced = sum(b - a for a, b in segs)
+        wt = [syllables(w) + 0.5 for w in p]
+        for f in np.cumsum([0] + wt[:-1]) / sum(wt):
+            x = f * voiced
+            for a, b in segs:
+                if x < b - a:
+                    out.append(a + x); break
+                x -= b - a
+            else:
+                out.append(segs[-1][1])
+    return out
+
+
+def tighten(a, sr, chunks, line_gap_idx, line_gap=0.24, intra_cap=0.2, lead=0.03, tail=0.08):
     """Rebuild VO with shortened pauses. Returns new audio and a time-mapping function."""
     pieces, marks, t = [], [], 0.0
     first = max(0, chunks[0][0] - lead)
@@ -225,209 +243,184 @@ def tighten(a, sr, chunks, line_gap_idx, line_gap=0.26, intra_cap=0.3, lead=0.03
     return np.concatenate(pieces), m
 
 
-# ---------------------------------------------------------------- music
-def synth_music(dur, cuts, sr=SR):
-    n = int(dur * sr)
-    out = np.zeros(n, np.float32)
-    rng = np.random.default_rng(7)
-    beat = 60 / 126
+# ---------------------------------------------------------------- music + SFX
+def bq(x, kind, f):
+    b, a = butter(2, np.array(f, float) / (SR / 2), kind)
+    return lfilter(b, a, x)
+
+
+def T(d):
+    return np.arange(int(d * SR)) / SR
+
+
+def saw(f, d, harm=8):
+    t = T(d)
+    return sum(np.sin(2 * np.pi * f * k * t) / k for k in range(1, harm + 1))
+
+
+def placer(n):
+    out = np.zeros(n)
 
     def add(sig, at, g=1.0):
-        i = int(at * sr)
-        if i >= n:
-            return
+        i = int(round(at * SR))
+        if i < 0:
+            sig, i = sig[-i:], 0
         k = min(len(sig), n - i)
-        out[i:i + k] += g * sig[:k]
-
-    t = np.arange(int(0.4 * sr)) / sr
-    kick = np.sin(2 * np.pi * (45 * t + (110 / 22) * (1 - np.exp(-22 * t)))) * np.exp(-7 * t)
-    tn = np.arange(int(0.06 * sr)) / sr
-    hat = np.diff(rng.standard_normal(len(tn) + 1)) * np.exp(-70 * tn) * 0.25
-    ts = np.arange(int(0.2 * sr)) / sr
-    snare = rng.standard_normal(len(ts)) * np.exp(-22 * ts) * 0.45 + np.sin(2 * np.pi * 190 * ts) * np.exp(-30 * ts) * 0.3
-    roots = [55.0, 43.65, 65.41, 49.0]
-    k, b = 0, 0.0
-    while b < dur:
-        add(kick, b, 0.9)
-        add(hat, b + beat / 2)
-        if k % 2 == 1:
-            add(snare, b)
-        f = roots[(k // 4) % 4]
-        tb = np.arange(int(beat * sr)) / sr
-        env = np.minimum(1, tb * 30) * (0.35 + 0.65 * np.clip((tb - 0.06) / 0.15, 0, 1))  # sidechain pump
-        add((np.sin(2 * np.pi * f * tb) + 0.3 * np.sin(4 * np.pi * f * tb)) * env * 0.35 * np.exp(-1.5 * tb), b)
-        k += 1; b += beat
-    tw = np.arange(int(0.25 * sr)) / sr  # impact on each cut
-    hit = rng.standard_normal(len(tw)) * np.exp(-18 * tw) * 0.25 + np.sin(2 * np.pi * 60 * tw) * np.exp(-9 * tw) * 0.6
-    for c in cuts:
-        add(hit, c)
-    return out / (np.abs(out).max() + 1e-9) * 0.9
+        if k > 0:
+            out[i:i + k] += g * sig[:k]
+    return out, add
 
 
-# ---------------------------------------------------------------- ASS overlays
-def ts(x):
-    cs = int(round(x * 100))
-    return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
+def synth_music(total, drop):
+    """124 BPM tech-house bed: muffled pulse + pad before the drop, full groove from the drop (bar 1 = drop)."""
+    rng = np.random.default_rng(5)
+    out, add = placer(int((total + 1) * SR))
+    beat = 60 / 124
+    t = T(.4)
+    kick = np.sin(2 * np.pi * (46 * t + 5.5 * (1 - np.exp(-20 * t)))) * np.exp(-7 * t)
+    kick[:120] += rng.standard_normal(120) * np.linspace(.25, 0, 120)
+    kick_lp = bq(kick, "lowpass", 260)
+    hat = bq(rng.standard_normal(int(.05 * SR)), "highpass", 7500) * np.exp(-90 * T(.05))
+    ohat = bq(rng.standard_normal(int(.25 * SR)), "highpass", 6500) * np.exp(-15 * T(.25))
+    tc = T(.22)
+    clap = bq(rng.standard_normal(len(tc)), "bandpass", [900, 3500]) * (np.exp(-26 * tc) + .9 * (tc < .035) * ((tc * 1000) % 11 < 4))
+    prog = [(55.0, (220.0, 261.63, 329.63)), (43.65, (174.61, 220.0, 261.63)),
+            (65.41, (196.0, 261.63, 329.63)), (49.0, (196.0, 246.94, 293.66))]
+    k = -int(np.ceil(drop / beat)) - 1
+    while drop + k * beat < total + 1:
+        b, post = drop + k * beat, k >= 0
+        root, chord = prog[(k // 4) % 4]
+        if post:
+            add(kick, b, .9)
+            if k % 2:
+                add(clap, b, .5)
+            add(ohat, b + beat / 2, .2)
+            for j in range(4):
+                add(hat, b + j * beat / 4, .09 if j % 2 else .05)
+            add(saw(root, .22, 7) * np.minimum(1, T(.22) * 300) * np.exp(-8 * T(.22)), b + beat / 2, .5)
+            if k % 4 in (1, 3):
+                add(bq(sum(saw(f, .17, 12) for f in chord), "lowpass", 3000) * np.exp(-14 * T(.17)), b + beat / 2, .07)
+        else:
+            add(kick_lp, b, .5); add(hat, b + beat / 2, .06)
+        if k % 4 == 0:
+            d = 4 * beat + .05; tt = T(d)
+            pad = sum(saw(f * (1 + dt), d, 6) for f in chord for dt in (-.004, .004))
+            pad *= np.minimum(1, tt / .3) * np.minimum(1, (d - tt) / .1)
+            add(bq(pad, "lowpass", 1400 if post else 650), b, .03 if post else .05)
+        k += 1
+    out = out[: int(total * SR)]
+    fade = int(.9 * SR)
+    out[-fade:] *= np.linspace(1, 0, fade) ** 1.5
+    return out / (np.abs(out).max() + 1e-9) * .9
 
 
-RECT = "m 0 0 l 1080 0 1080 1920 0 1920"
-CIRCLE = "m 50 0 b 78 0 100 22 100 50 b 100 78 78 100 50 100 b 22 100 0 78 0 50 b 0 22 22 0 50 0"
-CHECK = "m 18 50 l 32 36 l 44 48 l 70 22 l 84 36 l 44 76"
-
-
-def hl(text, fg, hlc):
-    return re.sub(r"\*(.+?)\*", lambda m: f"{{\\c{hlc}}}{m.group(1)}{{\\c{fg}}}", text)
-
-
-def text_size(text, base, maxw=960, k=0.68):
-    longest = max(len(re.sub(r"\*", "", l)) for l in text.split("\\N"))
-    return int(min(base, maxw / (k * longest)))
-
-
-def beat_events(b, s, e, idx):
-    ev = []
-    D = lambda layer, tags, body, s0=s, e0=e: ev.append(f"Dialogue: {layer},{ts(s0)},{ts(e0)},Default,,0,0,0,,{{{tags}}}{body}")
-    if b.get("end"):
-        bg, fg, hlc, sh = NAVY, WHITE, YELLOW, BLUE
-    elif b.get("price"):
-        bg, fg, hlc, sh = YELLOW, NAVY, BLUE, WHITE
-    else:
-        bg, fg, hlc, sh = SCHEMES[idx % len(SCHEMES)]
-    ms = int((e - s) * 1000)
-    D(0, f"\\an7\\pos(0,0)\\bord0\\shad0\\c{bg}\\p1", RECT)
-    # moving diagonal stripes for energy
-    D(1, f"\\an7\\bord0\\shad0\\c{sh}\\alpha&HC8&\\move(-900,0,700,0)\\p1", "m 0 0 l 260 0 l 760 1920 l 500 1920")
-    D(1, f"\\an7\\bord0\\shad0\\c{hlc}\\alpha&HD8&\\move(-500,0,1300,0)\\p1", "m 0 0 l 90 0 l 590 1920 l 500 1920")
-    # cut flash
-    D(9, "\\an7\\pos(0,0)\\bord0\\shad0\\c&HFFFFFF&\\alpha&H50&\\fad(0,130)\\p1", RECT, s, min(e, s + 0.13))
-    pop = f"\\fscx135\\fscy135\\t(0,110,\\fscx100\\fscy100)\\t(110,{ms},\\fscx107\\fscy107)"
-    base = f"\\an5\\bord0\\shad9\\4c{sh}\\4a&H00&\\fn{FONT}\\b1"
-    cy = 980
-    if b.get("end"):
-        D(3, f"{base}\\pos(540,700)\\fs150\\c{WHITE}{pop}", "NEQO")
-        D(3, f"{base}\\pos(540,840)\\fs92\\c{WHITE}\\fsp12{pop}", "DIGITAL")
-        D(2, f"\\an5\\pos(540,955)\\bord0\\shad0\\c{YELLOW}\\fscx0\\t(80,300,\\fscx100)\\p1", "m 0 0 l 700 0 700 12 0 12")
-        D(3, f"{base}\\pos(540,1100)\\fs170\\c{YELLOW}{pop}", "$150/mo.")
-        D(3, f"{base}\\pos(540,1270)\\fs104\\c{WHITE}{pop}", "No contracts.")
-        D(3, f"\\an5\\pos(540,1440)\\bord0\\shad0\\fn{FONT}\\fs46\\c{WHITE}\\alpha&H40&\\fad(300,0)",
-          "WEBSITES  •  LOCAL SEO  •  SOCIAL")
-        return ev
-    D(4, f"\\an8\\pos(540,250)\\bord0\\shad0\\fn{FONT}\\b1\\fs44\\fsp10\\c{fg}\\alpha&H60&", "NEQO DIGITAL")
-    if b.get("price"):
-        D(3, f"{base}\\pos(540,700)\\fs90\\c{fg}{pop}", "ALL FOR JUST")
-        D(3, f"{base}\\pos(540,990)\\fs330\\c{hlc}\\frz-4{pop}", "$150")
-        D(3, f"{base}\\pos(540,1260)\\fs150\\c{fg}\\frz-4{pop}", "/MO")
-        return ev
-    fs = text_size(b["t"], 170)
-    nl = b["t"].count("\\N") + 1
-    th = nl * fs * 1.12
-    top, bot = cy - th / 2, cy + th / 2
-    D(3, f"{base}\\pos(540,{cy})\\fs{fs}\\c{fg}\\frz-3{pop}", hl(b["t"], fg, hlc))
-    if b.get("k"):
-        D(3, f"{base}\\shad6\\pos(540,{int(top - 60)})\\fs76\\fsp6\\c{hlc}{pop}", b["k"])
-        top -= 120
-    if b.get("sub"):
-        D(3, f"{base}\\shad6\\pos(540,{int(bot + 75)})\\fs{text_size(b['sub'], 66, 960, 0.66)}\\c{fg}\\fad(120,0)", b["sub"])
-    if b.get("check"):
-        y = int(top - 150)
-        cpop = "\\fscx0\\fscy0\\t(40,200,\\fscx210\\fscy210)\\t(200,260,\\fscx190\\fscy190)"
-        D(2, f"\\an5\\pos(540,{y})\\bord0\\shad0\\c{hlc}{cpop}\\p1", CIRCLE)
-        D(3, f"\\an5\\pos(540,{y})\\bord0\\shad0\\c{bg}{cpop}\\p1", CHECK)
-    return ev
-
-
-def write_ass(path, beats):
-    hdr = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: {W}
-PlayResY: {H}
-WrapStyle: 2
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{FONT},120,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    ev = []
-    for i, (b, s, e) in enumerate(beats):
-        ev += beat_events(b, s, e, i)
-    open(path, "w").write(hdr + "\n".join(ev) + "\n")
+def synth_sfx(total, events):
+    rng = np.random.default_rng(9)
+    out, add = placer(int((total + 1) * SR))
+    for t, kind, p in events:
+        p = p or 0
+        if kind == "whoosh":
+            d = .42; tt = T(d)
+            add(bq(rng.standard_normal(len(tt)), "bandpass", [500, 6000]) * np.sin(np.pi * tt / d) ** 3, t - d * .6, .22)
+        elif kind == "impact":
+            d = 1.6; tt = T(d)
+            boom = np.sin(2 * np.pi * (36 * tt + 4 * (1 - np.exp(-8 * tt)))) * np.exp(-3 * tt)
+            crash = bq(rng.standard_normal(len(tt)), "highpass", 4000) * np.exp(-2.5 * tt) * .25
+            hit = bq(rng.standard_normal(len(tt)), "lowpass", 900) * np.exp(-14 * tt) * .6
+            add(boom + crash + hit, t, .55)
+        elif kind == "drop":  # riser that lands on the drop
+            d = 1.7; tt = T(d); r = (tt / d) ** 2
+            add(bq(rng.standard_normal(len(tt)), "highpass", 1200) * r * .5 + np.sin(2 * np.pi * (180 * tt + 650 * tt ** 2 / d)) * r * .2, t - d, .5)
+        elif kind == "sweep":
+            d = .7; tt = T(d)
+            add(bq(rng.standard_normal(len(tt)), "highpass", 3000) * (tt / d) ** 2, t, .3)
+        elif kind == "pop":
+            d = .09; tt = T(d)
+            add(np.sin(2 * np.pi * ((650 + 90 * p) * tt + 2600 * tt ** 2)) * np.exp(-40 * tt), t, .16)
+        elif kind == "tick":
+            tt = T(.03)
+            add(np.sin(2 * np.pi * (1800 + 100 * p) * tt) * np.exp(-150 * tt), t, .1)
+        elif kind == "glitch":
+            for j in range(6):
+                tt = T(.025)
+                add(np.sign(np.sin(2 * np.pi * rng.uniform(200, 1400) * tt)) * .4 + rng.standard_normal(len(tt)) * .2, t + j * .045, .25)
+    return out[: int(total * SR)]
 
 
 # ---------------------------------------------------------------- main
-def run(cmd):
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+def run(cmd, **kw):
+    subprocess.run(cmd, check=True, **kw)
+
+
+def fetch_fonts():
+    d = os.path.join(BUILD, "fonts")
+    os.makedirs(d, exist_ok=True)
+    if all(os.path.exists(os.path.join(d, f"Inter-{w}.ttf")) for w in (500, 600, 700, 800, 900)):
+        return
+    css = urllib.request.urlopen("https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900").read().decode()
+    for w, url in re.findall(r"font-weight: (\d+);.*?src: url\((https://[^)]+)\)", css, re.S):
+        urllib.request.urlretrieve(url, os.path.join(d, f"Inter-{w}.ttf"))
 
 
 def main():
-    fake = "--fake-tts" in sys.argv
     os.makedirs(BUILD, exist_ok=True)
-    raw = os.path.join(BUILD, "vo_fake.wav" if fake else "vo_gemini_raw.wav")
-    if fake:
-        fake_tts(raw)
-    elif not os.path.exists(raw) or "--regen" in sys.argv:
-        model = gemini_tts(STYLE + "\n".join(LINES), raw)
-        json.dump({"model": model, "voice": VOICE}, open(os.path.join(BUILD, "tts_meta.json"), "w"))
+    fetch_fonts()
+    raw = os.path.join(BUILD, "vo_gemini_raw.wav")
+    texts = [t for _, t in LINES]
+    if not os.path.exists(raw) or "--regen" in sys.argv:
+        model = gemini_tts(PROMPT + "\n".join(texts), raw)
+        heard = transcribe(raw) or ""
+        norm = lambda s: re.findall(r"[a-z0-9]+", s.lower().replace("neqo", "neeko"))
+        ratio = difflib.SequenceMatcher(None, norm(" ".join(texts)), norm(heard)).ratio()
+        print(f"VO transcript ({ratio:.0%} match): {heard}")
+        json.dump({"model": model, "voice": VOICE, "transcript": heard, "match": ratio},
+                  open(os.path.join(BUILD, "tts_meta.json"), "w"), indent=1)
     a, sr = read_wav(raw)
     chunks = speech_chunks(a, sr)
     print(f"raw VO {len(a) / sr:.2f}s, {len(chunks)} speech chunks")
-
-    # line-level alignment, then tighten pauses
-    lb = align(chunks, LINES)
+    lb = align(chunks, texts)
     if lb is None:
-        print("WARNING: not enough pauses for line alignment; using proportional timing")
-        line_spans = split_spans(chunks, LINES, (chunks[0][0], chunks[-1][1]))
-        vo, m = a[int(max(0, chunks[0][0] - 0.03) * sr): int((chunks[-1][1] + 0.06) * sr)], lambda x: x - max(0, chunks[0][0] - 0.03)
-    else:
-        idx = [-1] + lb + [len(chunks) - 1]
-        line_spans = [(chunks[idx[i] + 1][0], chunks[idx[i + 1]][1]) for i in range(len(LINES))]
-        vo, m = tighten(a, sr, chunks, set(lb))
-    beat_spans = []
-    for sc, sp in zip(SCENES, line_spans):
-        beat_spans += split_spans(chunks, [b["s"] for b in sc], sp)
-    beat_starts = [m(s) for s, _ in beat_spans]
+        sys.exit("Not enough pauses to align the script lines; re-run with --regen.")
+    idx = [-1] + lb + [len(chunks) - 1]
+    spans = [(chunks[idx[i] + 1][0], chunks[idx[i + 1]][1]) for i in range(len(texts))]
+    vo, m = tighten(a, sr, chunks, set(lb))
     vo_len = len(vo) / sr
-
-    # keep the whole reel inside 15-30s
-    MAX_VO = 27.0
-    tempo = 1.0
-    if vo_len > MAX_VO:
-        tempo = min(vo_len / MAX_VO, 1.3)
-        print(f"VO {vo_len:.2f}s too long -> atempo {tempo:.3f}")
-    vo_path = os.path.join(BUILD, "vo_tight.wav")
-    write_wav(vo_path, vo, sr)
-    vo_t = os.path.join(BUILD, "vo_tempo.wav")
-    run(["ffmpeg", "-y", "-i", vo_path, "-af", f"atempo={tempo:.4f}", "-ar", str(SR), vo_t])
+    tempo = min(max(1.0, vo_len / MAX_VO), 1.25)
+    tight = os.path.join(BUILD, "vo_tight.wav")
+    vo_t = os.path.join(BUILD, "vo_final.wav")
+    write_wav(tight, vo, sr)
+    run(["ffmpeg", "-v", "error", "-y", "-i", tight, "-af", f"atempo={tempo:.4f}", "-ar", str(SR), vo_t])
     vo_len /= tempo
-    beat_starts = [x / tempo for x in beat_starts]
+    f = lambda x: round(LEAD + m(x) / tempo, 3)
+    lines = [{"id": lid, "text": text, "t0": f(sp[0]), "t1": f(sp[1]), "w": [f(x) for x in word_starts(chunks, text.split(), sp)]}
+             for (lid, text), sp in zip(LINES, spans)]
+    total = round(min(30.0, LEAD + vo_len + HOLD), 3)
+    print(f"VO {vo_len:.2f}s (tempo {tempo:.3f}); reel {total:.2f}s; line starts:", ", ".join(f"{l['t0']:.2f}" for l in lines))
+    open(os.path.join(BUILD, "timeline.js"), "w").write("window.TL = " + json.dumps({"total": total, "lines": lines}) + ";\n")
 
-    LEAD, HOLD = 0.25, 1.8
-    total = min(30.0, max(15.0, LEAD + vo_len + HOLD))
-    flat = [b for sc in SCENES for b in sc]
-    starts = [0.0] + [max(0.0, LEAD + x - 0.06) for x in beat_starts[1:]]
-    beats = [(b, starts[i], starts[i + 1] if i + 1 < len(flat) else total) for i, b in enumerate(flat)]
-    print(f"reel length {total:.2f}s; cuts:", ", ".join(f"{s:.2f}" for _, s, _ in beats))
+    frames = os.path.join(BUILD, "frames")
+    shutil.rmtree(frames, ignore_errors=True); os.makedirs(frames)
+    npm_root = subprocess.check_output(["npm", "root", "-g"], text=True).strip()
+    run(["node", os.path.join(HERE, "render.cjs"), os.path.join(HERE, "scene.html"), frames, str(FPS), str(total), "4"],
+        env={**os.environ, "NODE_PATH": npm_root})
+    events = json.load(open(os.path.join(BUILD, "sfx.json")))
+    drop = next(t for t, k, _ in events if k == "drop")
+    music, sfx = os.path.join(BUILD, "music.wav"), os.path.join(BUILD, "sfx.wav")
+    write_wav(music, synth_music(total, drop), SR)
+    write_wav(sfx, synth_sfx(total, events), SR)
 
-    ass = os.path.join(BUILD, "overlay.ass")
-    write_ass(ass, beats)
-    music = os.path.join(BUILD, "music.wav")
-    write_wav(music, synth_music(total, [s for _, s, _ in beats]), SR)
-
-    fc = (f"[1:a]adelay={int(LEAD * 1000)}:all=1,apad,acompressor=threshold=0.1:ratio=3:attack=5:release=80,"
-          f"volume=1.6,asplit=2[vo][sc];"
-          f"[2:a]volume=0.22[mu];[mu][sc]sidechaincompress=threshold=0.04:ratio=5:attack=10:release=250[duck];"
-          f"[vo][duck]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11,"
-          f"atrim=0:{total:.3f},aresample={SR}[a];"
-          f"[0:v]ass={ass}[v]")
-    run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={FPS}:d={total:.3f}",
-         "-i", vo_t, "-i", music, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-         "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-profile:v", "high",
-         "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-ar", str(SR), "-movflags", "+faststart",
-         "-t", f"{total:.3f}", OUT if not fake else os.path.join(BUILD, "test_fake.mp4")])
-    print("wrote", OUT if not fake else os.path.join(BUILD, "test_fake.mp4"))
+    fc = (f"[1:a]adelay={int(LEAD * 1000)}:all=1,apad,highpass=f=90,equalizer=f=3200:t=q:w=1.2:g=2.5,"
+          f"acompressor=threshold=0.1:ratio=3:attack=5:release=90:makeup=1.6,asplit=2[vo][sc];"
+          f"[2:a]volume=0.42[mu];[mu][sc]sidechaincompress=threshold=0.035:ratio=5:attack=8:release=260[duck];"
+          f"[vo][duck][3:a]amix=inputs=3:duration=first:normalize=0,atrim=0:{total:.3f},"
+          f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample={SR},aformat=channel_layouts=stereo[a];"
+          f"[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]")
+    run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d.jpg"),
+         "-i", vo_t, "-i", music, "-i", sfx, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+         "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high", "-r", str(FPS),
+         "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{total:.3f}", OUT])
+    print("wrote", OUT, f"{os.path.getsize(OUT) / 1e6:.1f} MB")
 
 
 if __name__ == "__main__":
