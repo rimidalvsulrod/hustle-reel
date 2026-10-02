@@ -1,0 +1,282 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Stay Minted reel</title>
+<!-- Motion graphics for the Stay Minted reel. Driven by build/timeline.js (VO-synced word times);
+     ../reel/render.cjs calls window.build() once, then window.seek(t) per frame. -->
+<style>
+@font-face{font-family:A;src:url(build/fonts/anton.woff2)}
+@font-face{font-family:Y;src:url(build/fonts/yellowtail.woff2)}
+@font-face{font-family:Kal;src:url(build/fonts/kalam.woff2)}
+@font-face{font-family:I;src:url(build/fonts/Inter-500.ttf);font-weight:500}
+@font-face{font-family:I;src:url(build/fonts/Inter-700.ttf);font-weight:700}
+@font-face{font-family:I;src:url(build/fonts/Inter-800.ttf);font-weight:800}
+@font-face{font-family:I;src:url(build/fonts/Inter-900.ttf);font-weight:900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#050505;font-family:I,sans-serif;color:#fff;-webkit-font-smoothing:antialiased}
+#cam,#fx,.scene,.inner,.bgl{position:absolute;inset:0}
+.abs{position:absolute}
+.hl{position:absolute;left:30px;right:30px;text-align:center;font-family:A;text-transform:uppercase;line-height:.98;white-space:nowrap}
+.w{display:inline-block}
+.row{display:flex;align-items:center}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:12px 26px;font-weight:800}
+</style></head>
+<body><div id="cam"></div><div id="fx"></div>
+<script src="build/timeline.js"></script>
+<script>
+const TL = window.TL, CAM = document.getElementById('cam'), FX = document.getElementById('fx');
+const GREEN = '#3be04a';
+
+// ---------------------------------------------------------------- tiny deterministic animation engine
+const E = {lin: x => x, out: x => 1 - (1 - x) ** 3, inn: x => x ** 3, io: x => x < .5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2,
+  back: x => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2, expo: x => x >= 1 ? 1 : 1 - 2 ** (-10 * x)};
+const ELS = new Map(), HOOKS = [], SFX = [], SHAKES = [];
+const DEF = {x: 0, y: 0, s: 1, sx: 1, r: 0, o: 1, b: 0, sk: 0};
+function K(el, prop, ...keys) {  // keys: [time, value, easing-into-this-key]
+  let s = ELS.get(el); if (!s) ELS.set(el, s = {});
+  (s[prop] = s[prop] || []).push(...keys); s[prop].sort((a, b) => a[0] - b[0]);
+}
+function val(k, t) {
+  if (t <= k[0][0]) return k[0][1];
+  for (let i = 1; i < k.length; i++) if (t < k[i][0]) {
+    const [a, va] = k[i - 1], [b, vb, e] = k[i]; return va + (vb - va) * E[e || 'out']((t - a) / (b - a));
+  }
+  return k[k.length - 1][1];
+}
+function seek(t) {
+  for (const [el, s] of ELS) {
+    const v = {...DEF}; for (const p in s) v[p] = val(s[p], t);
+    el.style.opacity = v.o; el.style.visibility = v.o < .002 ? 'hidden' : 'visible';
+    el.style.transform = `translate(${v.x}px,${v.y}px) rotate(${v.r}deg) skewX(${v.sk}deg) scale(${v.s * v.sx},${v.s})`;
+    el.style.filter = v.b > .05 ? `blur(${v.b.toFixed(2)}px)` : 'none';
+  }
+  let dx = 0, dy = 0;
+  for (const [t0, a] of SHAKES) if (t >= t0) { const q = t - t0, d = a * Math.exp(-q * 9); dx += d * Math.sin(q * 71); dy += d * Math.cos(q * 53); }
+  CAM.style.transform = `translate(${dx}px,${dy}px)`;
+  for (const h of HOOKS) h(t);
+}
+function $(tag, cls, parent, css, html) {
+  const e = document.createElement(tag); if (cls) e.className = cls; if (css) e.style.cssText = css; if (html != null) e.innerHTML = html;
+  parent.appendChild(e); return e;
+}
+const sfx = (t, type, p = 0) => SFX.push([+t.toFixed(3), type, p]);
+const clamp01 = x => Math.max(0, Math.min(1, x));
+function reveal(el, t, d = .3, dy = 30) { K(el, 'o', [t, 0], [t + d * .6, 1]); K(el, 'b', [t, 12], [t + d, 0]); K(el, 'y', [t, dy], [t + d, 0]); }
+function pop(el, t, from = .5, snd = 0) {
+  K(el, 'o', [t, 0], [t + .08, 1]); K(el, 's', [t, from], [t + .4, 1, 'back']); K(el, 'b', [t, 8], [t + .18, 0]);
+  if (snd !== null) sfx(t, 'pop', snd);
+}
+function popWord(el, t, i) {  // juicy word pop: drop in big, bounce, settle
+  K(el, 'o', [t, 0], [t + .06, 1]); K(el, 's', [t, 1.55], [t + .32, 1, 'back']); K(el, 'y', [t, -36], [t + .26, 0]);
+  K(el, 'r', [t, i % 2 ? -8 : 8], [t + .32, 0, 'back']); K(el, 'b', [t, 8], [t + .12, 0]);
+}
+function slide(el, t, dx, dy, d = .5) { K(el, 'o', [t, 0], [t + .15, 1]); K(el, 'x', [t, dx], [t + d, 0, 'back']); K(el, 'y', [t, dy], [t + d, 0, 'back']); K(el, 'b', [t, 12], [t + .25, 0]); }
+function flash(t, a = .6, c = '255,250,210') {
+  const f = $('div', 'abs', FX, `inset:0;background:radial-gradient(circle at 50% 45%,rgb(${c}),rgba(${c},.5) 35%,transparent 75%)`);
+  K(f, 'o', [t, 0], [t + .03, a, 'lin'], [t + .4, 0]);
+}
+const shake = (t, a) => SHAKES.push([t, a]);
+function typeText(el, txt, t0, t1) { HOOKS.push(t => { el.textContent = txt.slice(0, Math.round(clamp01((t - t0) / (t1 - t0)) * txt.length)); }); }
+
+// headline: tokens split on spaces, '|' = line break, *...* = highlight color; ws[i] = time word i pops in
+function headline(p, txt, ws, top, size, color = '#fff', hi = GREEN, css = '') {
+  const el = $('div', 'hl', p, `top:${top}px;font-size:${size}px;color:${color};${css}`), words = [];
+  let g = false;
+  for (const tok of txt.split(' ')) {
+    if (tok === '|') { $('br', null, el); continue; }
+    let w = tok; if (w[0] === '*') { g = true; w = w.slice(1); }
+    const end = w.endsWith('*'); if (end) w = w.slice(0, -1);
+    const sp = $('span', 'w', el, g ? `color:${hi}` : ''); sp.textContent = w; words.push(sp);
+    el.appendChild(document.createTextNode(' '));
+    if (end) g = false;
+  }
+  words.forEach((w, i) => ws[i] != null && popWord(w, ws[i] - .05, i));
+  return {el, words};
+}
+const script = (p, txt, ws, top, size, color, css = '') =>
+  headline(p, txt, ws, top, size, color, color, `font-family:Y;text-transform:none;line-height:1.15;${css}`);
+function fit() {  // shrink any headline line that would overflow the frame
+  for (const el of document.querySelectorAll('.hl')) {
+    let fs = parseFloat(el.style.fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && fs > 30) { fs -= 4; el.style.fontSize = fs + 'px'; }
+  }
+}
+
+// ---------------------------------------------------------------- reusable pieces
+function bgDark(p, g1 = 'rgba(59,224,74,.30)', g2 = 'rgba(255,198,26,.30)') {
+  $('div', 'bgl', p, 'background:#050505');
+  const a = $('div', 'abs', p, `left:-460px;top:-260px;width:1400px;height:1400px;border-radius:50%;background:radial-gradient(circle,${g1},transparent 65%)`);
+  const b = $('div', 'abs', p, `left:150px;top:850px;width:1400px;height:1400px;border-radius:50%;background:radial-gradient(circle,${g2},transparent 65%)`);
+  HOOKS.push(t => {
+    a.style.transform = `translate(${Math.sin(t * .5) * 60}px,${Math.cos(t * .4) * 50}px)`;
+    b.style.transform = `translate(${Math.cos(t * .45) * 70}px,${Math.sin(t * .35) * 60}px)`;
+  });
+}
+function bottle(p, cx, top, h) {  // animated wrapper + static drop-shadowed cutout
+  const w = h * 642 / 1400, wrap = $('div', 'abs', p, `left:${cx - w / 2}px;top:${top}px;width:${w}px;height:${h}px`);
+  $('img', '', wrap, `width:100%;height:100%;filter:drop-shadow(0 40px 50px rgba(0,0,0,.45))`).src = 'build/bottle.webp';
+  return wrap;
+}
+function glow(p, cx, cy, d, c) { return $('div', 'abs', p, `left:${cx - d / 2}px;top:${cy - d / 2}px;width:${d}px;height:${d}px;border-radius:50%;background:radial-gradient(circle,${c},transparent 68%)`); }
+function splash(p, cx, cy, t, cols, n = 12) {
+  const blob = glow(p, cx, cy, 900, cols[0]); K(blob, 's', [t, .3], [t + .5, 1]); K(blob, 'o', [t, 0], [t + .2, .95]);
+  for (let i = 0; i < n; i++) {
+    const a = i / n * 2 * Math.PI + .3, r = 300 + (i % 3) * 110, s = 34 + (i * 37) % 70;
+    const d = $('div', 'abs', p, `left:${cx - s / 2}px;top:${cy - s / 2}px;width:${s}px;height:${s}px;border-radius:50%;background:${cols[i % cols.length]}`);
+    K(d, 'x', [t, 0], [t + .55, Math.cos(a) * r]); K(d, 'y', [t, 0], [t + .55, Math.sin(a) * r * 1.25]);
+    K(d, 's', [t, .2], [t + .3, 1], [t + 1.4, .55]); K(d, 'o', [t, 0], [t + .05, 1]);
+  }
+  sfx(t, 'splash');
+}
+function emoji(p, ch, x, y, size, t, i) {
+  const o = $('div', 'abs', p, `left:${x}px;top:${y}px;font-size:${size}px;line-height:1`), inner = $('div', '', o, '', ch);
+  pop(o, t, .2, i); K(o, 'r', [t, i % 2 ? 40 : -40], [t + .45, i % 2 ? 10 : -10, 'back']);
+  HOOKS.push(tt => inner.style.transform = `translateY(${Math.sin(tt * 3.2 + i * 1.3) * 16}px)`);
+}
+function bubbles() {  // fizz rising over every scene
+  let seed = 5; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647, B = [];
+  for (let i = 0; i < 34; i++) {
+    const s = 8 + rnd() * 28, d = $('div', 'abs', FX, `left:0;top:0;width:${s}px;height:${s}px;border-radius:50%;border:3px solid rgba(255,255,255,${.18 + rnd() * .25});background:rgba(255,255,255,.05)`);
+    B.push({d, x: rnd() * 1080, y: rnd() * 2100, v: 70 + rnd() * 120, ph: rnd() * 6});
+  }
+  HOOKS.push(t => { for (const b of B) b.d.style.transform = `translate(${b.x + Math.sin(t * 2 + b.ph) * 18}px,${((b.y - b.v * t) % 2100 + 2100) % 2100 - 90}px)`; });
+}
+
+// ---------------------------------------------------------------- scenes (one per VO line)
+function scene(t0, t1, kin = 'whip') {
+  const sc = $('div', 'scene', CAM), inner = $('div', 'inner', sc), first = t0 <= .001, last = t1 >= TL.total - .001;
+  if (!first) {
+    if (kin === 'whip') { K(sc, 'o', [t0 - .07, 0], [t0 - .06, 1, 'lin']); K(sc, 'x', [t0 - .06, 1080], [t0 + .2, 0, 'expo']); K(sc, 'b', [t0 - .06, 30], [t0 + .16, 0]); }
+    else { K(sc, 'o', [t0 - .04, 0], [t0 + .12, 1]); K(sc, 's', [t0 - .04, 1.12], [t0 + .3, 1]); K(sc, 'b', [t0 - .04, 18], [t0 + .2, 0]); }
+    sfx(t0, 'whoosh');
+  }
+  if (!last) { K(sc, 'x', [t1 - .1, 0], [t1 + .1, -1080, 'inn']); K(sc, 'b', [t1 - .1, 0], [t1 + .1, 30, 'inn']); K(sc, 'o', [t1 + .1, 1], [t1 + .12, 0, 'lin']); }
+  K(inner, 's', [t0, 1], [t1, 1.04, 'lin']);
+  return inner;
+}
+const S = {};
+
+S.hook = (p, l, t0, t1) => {
+  $('div', 'bgl', p, 'background:radial-gradient(circle at 50% 45%,#3b3b3b,#141414 72%)');
+  headline(p, 'Still drinking juice | from *concentrate?*', l.w, 240, 150, '#e4e4e4', '#ff4b4b');
+  const c = $('div', 'abs', p, 'left:330px;top:780px;width:420px;height:700px',
+    `<div style="height:150px;background:linear-gradient(90deg,#d4d4d4,#a3a3a3);clip-path:polygon(0 100%,50% 0,100% 100%)"></div>
+     <div style="height:550px;background:linear-gradient(90deg,#d9d9d9,#a8a8a8);border-radius:0 0 18px 18px;padding:56px 30px;text-align:center;color:#6b6b6b;box-shadow:0 40px 80px rgba(0,0,0,.5)">
+       <div style="font-family:A;font-size:92px;line-height:1">ORANGE<br>DRINK</div>
+       <div style="font-weight:800;font-size:28px;margin-top:22px;letter-spacing:.08em">FROM CONCENTRATE</div>
+       <div style="font-family:A;font-size:84px;color:#8a8a8a;margin-top:26px">10% JUICE</div></div>`);
+  slide(c, t0 + .05, 0, 220, .55); K(c, 'r', [t0, -14], [t0 + .55, -5]);
+  [['✕ Added sugar', 50, 930], ['✕ Made months ago', 580, 1130], ['✕ Pasteurized', 80, 1360]].forEach(([s, x, y], i) =>
+    pop($('div', 'abs pill', p, `left:${x}px;top:${y}px;background:#ff4b4b;color:#fff;font-size:38px;box-shadow:0 14px 34px rgba(0,0,0,.45)`, s), t0 + .45 + i * .22, .4, i));
+  const g = t1 - .3;  // glitch out into the drop
+  K(p, 'x', [g, 0], [g + .05, -28, 'lin'], [g + .1, 22, 'lin'], [g + .15, -14, 'lin'], [g + .2, 10, 'lin'], [g + .25, 0, 'lin']);
+  K(p, 'sk', [g, 0], [g + .05, 9, 'lin'], [g + .1, -7, 'lin'], [g + .15, 5, 'lin'], [g + .25, 0, 'lin']);
+  sfx(g, 'glitch');
+};
+
+S.meet = (p, l, t0) => {
+  const w = l.w;
+  bgDark(p, 'rgba(59,224,74,.38)', 'rgba(255,198,26,.42)');
+  const ring = $('div', 'abs', p, 'left:240px;top:700px;width:600px;height:600px;border-radius:50%;border:8px solid rgba(255,226,122,.9);box-shadow:0 0 70px rgba(255,198,26,.9),inset 0 0 60px rgba(59,224,74,.6)');
+  K(ring, 's', [t0, .15], [t0 + .9, 2.8]); K(ring, 'o', [t0, 1], [t0 + .9, 0]);
+  splash(p, 540, 1250, t0, ['rgba(255,198,26,.55)', '#ffc61a', GREEN, '#ffe27a'], 14);
+  flash(t0, .8); shake(t0, 18); sfx(t0, 'drop'); sfx(t0, 'impact', 1);
+  const b = bottle(p, 540, 830, 1000); K(b, 'y', [t0, 900], [t0 + .6, 0, 'back']); K(b, 'o', [t0, 0], [t0 + .1, 1]);
+  K(b, 'r', [t0 + .6, 0], [t0 + 1.4, -3, 'io'], [t0 + 2.2, 0, 'io']);
+  popWord($('div', 'abs', p, `left:0;right:0;top:230px;text-align:center;font-weight:900;font-size:46px;letter-spacing:.45em;text-indent:.45em;color:${GREEN}`, 'MEET'), w[0] - .05, 0);
+  const st = $('div', 'abs', p, 'left:0;right:0;top:250px;text-align:center;font-family:Y;font-size:210px;line-height:1.1;text-shadow:0 8px 30px rgba(0,0,0,.5)', 'Stay');
+  popWord(st, w[1] - .05, 1);
+  const m = $('div', 'abs', p, `left:0;right:0;top:450px;text-align:center;font-family:A;font-size:330px;line-height:.92;color:${GREEN};text-shadow:0 0 70px rgba(59,224,74,.55)`, 'MINTED');
+  K(m, 'o', [w[2] - .05, 0], [w[2] + .03, 1]); K(m, 's', [w[2] - .05, 1.9], [w[2] + .35, 1, 'back']); K(m, 'b', [w[2] - .05, 16], [w[2] + .15, 0]);
+  flash(w[2], .3, '59,224,74'); sfx(w[2] - .05, 'pop', 6);
+};
+
+S.fresh = (p, l, t0) => {
+  const w = l.w;
+  $('div', 'bgl', p, 'background:radial-gradient(circle at 65% 62%,#13702a 0%,#07320f 50%,#020c04 100%)');
+  const rays = $('div', 'abs', p, 'left:-220px;top:300px;width:2000px;height:2000px;border-radius:50%;background:repeating-conic-gradient(rgba(255,226,122,.13) 0 7deg,transparent 7deg 20deg);-webkit-mask:radial-gradient(circle,#000 20%,transparent 62%)');
+  HOOKS.push(t => rays.style.transform = `rotate(${t * 14}deg)`);
+  glow(p, 720, 1250, 900, 'rgba(255,198,26,.45)');
+  headline(p, '*Fresh-pressed juice* | from New Britain, CT.', w, 250, 130, '#fff', '#ffc61a', 'text-shadow:0 10px 0 rgba(0,0,0,.35)');
+  const b = bottle(p, 730, 640, 1000); slide(b, t0 + .02, 500, 0, .55); K(b, 'r', [t0, 22], [t0 + .55, 7]);
+  ['16 oz', 'Fresh pressed', 'Keep cold'].forEach((s, i) =>
+    pop($('div', 'abs pill', p, `left:60px;top:${780 + i * 125}px;background:rgba(5,5,5,.78);border:2px solid rgba(59,224,74,.55);font-size:38px;gap:14px`,
+      `<span style="width:16px;height:16px;border-radius:50%;background:${GREEN};box-shadow:0 0 14px ${GREEN}"></span>${s}`), w[0] + .1 + i * .14, .4, i));
+  pop($('div', 'abs', p, 'left:60px;top:1215px;background:#fff3a6;color:#050505;font-weight:800;font-size:34px;line-height:1.25;padding:18px 28px;border-radius:26px;box-shadow:0 16px 40px rgba(0,0,0,.4)', '📍 Proudly pressed in<br>New Britain, CT'), w[3] - .05, .4, 4);
+};
+
+function flavor(p, l, t0, c) {
+  $('div', 'bgl', p, `background:${c.bg}`);
+  $('div', 'abs', p, `right:-30px;top:60px;font-family:A;font-size:820px;line-height:1;color:${c.num}`, c.n);
+  pop($('div', 'abs row', p, 'left:0;right:0;top:200px;justify-content:center', `<span class="pill" style="background:#050505;color:${c.tagc};font-size:30px;letter-spacing:.28em;padding:14px 30px 14px 40px">${c.n} · ${c.tag}</span>`), t0 + .02, .5, null);
+  headline(p, c.name, l.w.slice(0, c.nameN), 290, 240, c.color, c.color, `text-shadow:0 12px 0 ${c.shadow}`);
+  script(p, c.desc, l.w.slice(c.nameN), c.descTop, 140, c.descColor, `text-shadow:0 8px 24px ${c.descShadow}`);
+  splash(p, 540, c.bTop + 450, t0 + .05, c.blob, 12);
+  const b = bottle(p, 540, c.bTop, 900);
+  K(b, 'y', [t0, 760], [t0 + .45, 0, 'back']); K(b, 'o', [t0, 0], [t0 + .08, 1]); K(b, 'r', [t0, c.rot * 4], [t0 + .5, c.rot, 'back']);
+  c.emo.forEach(([ch, x, y, s], i) => emoji(p, ch, x, y, s, t0 + .12 + i * .09, i));
+}
+S.pine = (p, l, t0) => flavor(p, l, t0, {n: '01', tag: 'SIGNATURE', name: 'Pineapple | Mint', nameN: 2, color: '#06290c', shadow: 'rgba(255,255,255,.45)',
+  desc: 'tropical & crisp', descTop: 760, descColor: '#fff', descShadow: 'rgba(6,41,12,.45)', bTop: 960, rot: -6, tagc: GREEN,
+  bg: 'linear-gradient(165deg,#3be04a 0%,#9ae86a 42%,#ffe27a 80%,#ffc61a 100%)', num: 'rgba(255,255,255,.2)', blob: ['rgba(255,243,166,.8)', '#3be04a', '#fff3a6', '#ffc61a'],
+  emo: [['🍍', 70, 1000, 190], ['🌿', 820, 1040, 150], ['🍍', 830, 1480, 140], ['🌿', 110, 1500, 130]]});
+S.ginger = (p, l, t0) => flavor(p, l, t0, {n: '02', tag: 'BOLD', name: 'Ginger', nameN: 1, color: '#4a2400', shadow: 'rgba(255,255,255,.5)',
+  desc: 'with a kick', descTop: 560, descColor: '#b84a00', descShadow: 'rgba(255,255,255,.4)', bTop: 780, rot: 6, tagc: '#ffc61a',
+  bg: 'linear-gradient(165deg,#fff3a6 0%,#ffd9a0 45%,#e8b04a 100%)', num: 'rgba(184,74,0,.13)', blob: ['rgba(232,176,74,.8)', '#e8b04a', '#ffd9a0', '#b84a00'],
+  emo: [['🔥', 80, 860, 170], ['⚡', 830, 900, 150], ['🔥', 840, 1400, 130], ['⚡', 100, 1430, 130]]});
+S.orange = (p, l, t0) => flavor(p, l, t0, {n: '03', tag: 'CLASSIC', name: 'Oranges', nameN: 1, color: '#fff', shadow: '#b84a00',
+  desc: 'pure sunshine', descTop: 560, descColor: '#fff3a6', descShadow: 'rgba(120,40,0,.5)', bTop: 780, rot: -6, tagc: '#ff8a00',
+  bg: 'linear-gradient(165deg,#ffc61a 0%,#ff8a00 55%,#ff5f00 100%)', num: 'rgba(255,255,255,.17)', blob: ['rgba(255,226,122,.8)', '#ffc61a', '#ffe27a', '#ff5f00'],
+  emo: [['🍊', 70, 870, 180], ['☀️', 820, 890, 160], ['🍊', 840, 1420, 150], ['🍊', 100, 1450, 120]]});
+S.turmeric = (p, l, t0) => flavor(p, l, t0, {n: '04', tag: 'GOLDEN', name: 'Turmeric', nameN: 1, color: '#fff3a6', shadow: '#6b3f00',
+  desc: 'liquid gold', descTop: 560, descColor: '#ffe27a', descShadow: 'rgba(70,35,0,.6)', bTop: 780, rot: 6, tagc: '#ffc61a',
+  bg: 'linear-gradient(165deg,#f2a300 0%,#c77700 55%,#7a4a0a 100%)', num: 'rgba(255,243,166,.13)', blob: ['rgba(255,198,26,.75)', '#ffc61a', '#fff3a6', '#f2a300'],
+  emo: [['✨', 80, 870, 170], ['🌟', 830, 910, 150], ['✨', 850, 1420, 140], ['🌟', 110, 1440, 120]]});
+
+S.real = (p, l, t0) => {
+  const w = l.w;
+  bgDark(p);
+  const A = headline(p, 'Real fruit. | *Real roots.*', w.slice(0, 4), 220, 170);
+  headline(p, 'Nothing you | can\'t *pronounce.*', w.slice(4), 220, 160);
+  K(A.el, 'o', [w[4] - .16, 1], [w[4] - .04, 0]); K(A.el, 'y', [w[4] - .16, 0], [w[4] - .04, -50]);
+  const c = $('div', 'abs', p, 'left:150px;top:640px;width:780px;padding:44px 54px 30px;background:#f6f5f0;border-radius:30px;color:#050505;box-shadow:0 40px 100px rgba(0,0,0,.6)',
+    '<div style="font-family:A;font-size:78px;line-height:1;border-bottom:7px solid #050505;padding-bottom:16px">INGREDIENTS</div>' +
+    ['Pineapple', 'Mint', 'Ginger', 'Oranges', 'Turmeric'].map(x => `<div class="row" style="justify-content:space-between;font-family:Kal;font-weight:700;font-size:54px;height:98px;border-bottom:3px solid #d8d6cc">${x}<span class="ck" style="width:60px;height:60px;border-radius:50%;background:${GREEN};color:#050505;font-weight:900;font-size:36px;display:flex;align-items:center;justify-content:center">✓</span></div>`).join(''));
+  slide(c, t0 + .02, 0, 180, .5); K(c, 'r', [t0, 5], [t0 + .5, -2]);
+  [...c.querySelectorAll('.ck')].forEach((ck, i) => { pop(ck, t0 + .3 + i * .15, .2, null); sfx(t0 + .3 + i * .15, 'tick', i); });
+  const ts = w[7] - .06, st = $('div', 'abs', p, `left:170px;top:1150px;padding:20px 44px;border:12px solid ${GREEN};border-radius:22px;color:${GREEN};font-family:A;font-size:116px;line-height:1;background:rgba(5,5,5,.88);box-shadow:0 20px 60px rgba(0,0,0,.5)`, 'NOTHING ELSE.');
+  K(st, 'r', [0, -11]); K(st, 'o', [ts, 0], [ts + .04, 1, 'lin']); K(st, 's', [ts, 2.5], [ts + .14, 1, 'inn']);
+  sfx(ts + .12, 'thump'); shake(ts + .12, 12);
+};
+
+S.end = (p, l, t0) => {
+  const w = l.w;
+  bgDark(p, 'rgba(59,224,74,.34)', 'rgba(255,198,26,.36)');
+  sfx(t0 - .55, 'sweep'); sfx(t0, 'impact', 3); flash(t0, .35);
+  const st = $('div', 'abs', p, 'left:0;right:0;top:190px;text-align:center;font-family:Y;font-size:170px;line-height:1.1', 'Stay');
+  popWord(st, w[0] - .05, 1);
+  const m = $('div', 'abs', p, `left:0;right:0;top:350px;text-align:center;font-family:A;font-size:290px;line-height:.92;color:${GREEN};text-shadow:0 0 60px rgba(59,224,74,.5)`, 'MINTED');
+  K(m, 'o', [w[1] - .05, 0], [w[1] + .03, 1]); K(m, 's', [w[1] - .05, 1.7], [w[1] + .33, 1, 'back']); K(m, 'b', [w[1] - .05, 14], [w[1] + .15, 0]);
+  K($('div', 'abs', p, 'left:170px;top:625px;width:740px;height:8px;border-radius:4px;background:#fff'), 'sx', [w[1] + .1, 0], [w[1] + .45, 1]);
+  headline(p, 'Fresh. Pressed. Juices.', w.slice(2, 5), 655, 100);
+  glow(p, 540, 1010, 700, 'rgba(255,198,26,.5)');
+  pop(bottle(p, 540, 790, 450), t0 + .2, .3, null);
+  reveal($('div', 'abs', p, 'left:0;right:0;top:1262px;text-align:center;font-weight:700;font-size:42px;color:#e2e6da', 'New Britain, CT — follow'), w[5] - .05);
+  const u = $('div', 'abs row', p, 'left:0;right:0;top:1330px;justify-content:center');
+  const pill = $('div', 'pill', u, `background:${GREEN};color:#050505;font-size:60px;font-weight:900;padding:18px 44px;gap:18px;box-shadow:0 0 50px rgba(59,224,74,.55)`,
+    '<span style="width:52px;height:52px;border:6px solid #050505;border-radius:15px;display:flex;align-items:center;justify-content:center"><span style="width:20px;height:20px;border:5px solid #050505;border-radius:50%"></span></span><span class="h"></span>');
+  pop(pill, w[6] - .1, .5, 5);
+  typeText(pill.querySelector('.h'), '@stayminted', w[6], w[8] + .25);
+};
+
+// ---------------------------------------------------------------- build
+window.build = async () => {
+  await Promise.all(['60px A', '60px Y', '700 60px Kal', '500 60px I', '700 60px I', '800 60px I', '900 60px I'].map(f => document.fonts.load(f)));
+  const L = TL.lines, st = L.map((l, i) => i ? l.t0 - .1 : 0), KIN = {meet: 'zoom', end: 'zoom'};
+  L.forEach((l, i) => { const t1 = i + 1 < L.length ? st[i + 1] : TL.total; S[l.id](scene(st[i], t1, KIN[l.id] || 'whip'), l, st[i], t1); });
+  bubbles();
+  K($('div', 'abs', FX, 'inset:0;background:#000'), 'o', [TL.total - .5, 0], [TL.total - .04, 1, 'lin']);  // fade out
+  await Promise.all([...document.images].map(im => im.complete ? 0 : new Promise(r => im.onload = im.onerror = r)));
+  fit(); seek(0);
+  return SFX.sort((a, b) => a[0] - b[0]);
+};
+window.seek = seek;
+</script></body></html>

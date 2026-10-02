@@ -21,6 +21,11 @@ W, H, FPS, SR = 1080, 1920, 30, 48000
 VOICE = os.environ.get("GEMINI_VOICE", "Puck")
 TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"]
 LEAD, HOLD, MAX_VO = 0.35, 2.0, 27.0
+RENDER = os.path.join(HERE, "render.cjs")
+# music: tempo, (bass root, chord) per bar, chord-stab sound ("saw" stabs or "pluck")
+BPM, STAB = 124, "saw"
+PROG = [(55.0, (220.0, 261.63, 329.63)), (43.65, (174.61, 220.0, 261.63)),
+        (65.41, (196.0, 261.63, 329.63)), (49.0, (196.0, 246.94, 293.66))]
 
 # One spoken line per scene in scene.html (matched by id). "Neeko" is the phonetic spelling of NEQO (NEE-koh).
 LINES = [
@@ -92,7 +97,7 @@ def gemini_tts(text, path):
 def transcribe(path):
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(open(path, "rb").read()).decode()}},
                                     {"text": "Transcribe this audio verbatim. Output only the spoken words."}]}]}
-    for m in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-flash-latest"]:
+    for m in ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-flash-latest"]:
         try:
             return api(f"{API}/models/{m}:generateContent", body)["candidates"][0]["content"]["parts"][0]["text"].strip()
         except Exception as e:
@@ -139,35 +144,38 @@ def speech_chunks(a, sr, min_gap=0.12, min_len=0.06):
 
 
 def align(chunks, texts):
-    """Pick which inter-chunk gaps separate consecutive texts. Returns list of gap indices or None."""
-    n = len(texts)
+    """Split the speech chunks into one consecutive run per text (segmentation DP): each run's voiced time should
+    match its syllable count at the overall speaking rate, and runs should break on clear pauses rather than short
+    ones. Returns the index of the gap ending each run but the last, or None if there are fewer chunks than texts."""
+    n, m = len(texts), len(chunks)
     if n == 1:
         return []
-    gaps = [(chunks[i][1], chunks[i + 1][0]) for i in range(len(chunks) - 1)]
-    if len(gaps) < n - 1:
+    if m < n:
         return None
-    s0, s1 = chunks[0][0], chunks[-1][1]
-    L = [len(t) for t in texts]
-    E = [s0 + (s1 - s0) * sum(L[: i + 1]) / sum(L) for i in range(n - 1)]
-    cost = lambda i, j: abs((gaps[j][0] + gaps[j][1]) / 2 - E[i]) - 1.2 * min(gaps[j][1] - gaps[j][0], 0.7)
-    G, INF = len(gaps), float("inf")
-    dp = [[INF] * G for _ in range(n - 1)]
-    bk = [[-1] * G for _ in range(n - 1)]
-    for j in range(G):
-        dp[0][j] = cost(0, j)
-    for i in range(1, n - 1):
-        best, arg = INF, -1
-        for j in range(G):
-            if j - 1 >= 0 and dp[i - 1][j - 1] < best:
-                best, arg = dp[i - 1][j - 1], j - 1
-            if best < INF:
-                dp[i][j], bk[i][j] = best + cost(i, j), arg
-    j = min(range(G), key=lambda j: dp[n - 2][j])
-    if dp[n - 2][j] == INF:
-        return None
-    res = [j]
-    for i in range(n - 2, 0, -1):
-        j = bk[i][j]; res.append(j)
+    syl = [sum(syllables(w) for w in t.split()) for t in texts]
+    cum = np.concatenate([[0.0], np.cumsum([e - s for s, e in chunks])])
+    rate = cum[-1] / sum(syl)
+    gap = [chunks[k + 1][0] - chunks[k][1] for k in range(m - 1)]
+
+    def seg(i, a, b):  # text i spoken over chunks a..b
+        return (np.log((cum[b + 1] - cum[a]) / (syl[i] * rate)) ** 2
+                + sum(2.0 * max(0.0, gap[k] - 0.45) for k in range(a, b)))  # long pauses rarely sit inside a line
+
+    INF = float("inf")
+    D = [[INF] * m for _ in range(n)]
+    P = [[-1] * m for _ in range(n)]
+    for b in range(m):
+        D[0][b] = seg(0, 0, b)
+    for i in range(1, n):
+        for b in range(i, m):
+            for a in range(i, b + 1):
+                c = D[i - 1][a - 1] + seg(i, a, b) + 2.0 * max(0.0, 0.3 - gap[a - 1])
+                if c < D[i][b]:
+                    D[i][b], P[i][b] = c, a
+    res, b = [], m - 1
+    for i in range(n - 1, 0, -1):
+        b = P[i][b] - 1
+        res.append(b)
     return res[::-1]
 
 
@@ -272,10 +280,10 @@ def placer(n):
 
 
 def synth_music(total, drop):
-    """124 BPM tech-house bed: muffled pulse + pad before the drop, full groove from the drop (bar 1 = drop)."""
+    """House bed at BPM over PROG: muffled pulse + pad before the drop, full groove from the drop (bar 1 = drop)."""
     rng = np.random.default_rng(5)
     out, add = placer(int((total + 1) * SR))
-    beat = 60 / 124
+    beat = 60 / BPM
     t = T(.4)
     kick = np.sin(2 * np.pi * (46 * t + 5.5 * (1 - np.exp(-20 * t)))) * np.exp(-7 * t)
     kick[:120] += rng.standard_normal(120) * np.linspace(.25, 0, 120)
@@ -284,12 +292,10 @@ def synth_music(total, drop):
     ohat = bq(rng.standard_normal(int(.25 * SR)), "highpass", 6500) * np.exp(-15 * T(.25))
     tc = T(.22)
     clap = bq(rng.standard_normal(len(tc)), "bandpass", [900, 3500]) * (np.exp(-26 * tc) + .9 * (tc < .035) * ((tc * 1000) % 11 < 4))
-    prog = [(55.0, (220.0, 261.63, 329.63)), (43.65, (174.61, 220.0, 261.63)),
-            (65.41, (196.0, 261.63, 329.63)), (49.0, (196.0, 246.94, 293.66))]
     k = -int(np.ceil(drop / beat)) - 1
     while drop + k * beat < total + 1:
         b, post = drop + k * beat, k >= 0
-        root, chord = prog[(k // 4) % 4]
+        root, chord = PROG[(k // 4) % len(PROG)]
         if post:
             add(kick, b, .9)
             if k % 2:
@@ -298,7 +304,9 @@ def synth_music(total, drop):
             for j in range(4):
                 add(hat, b + j * beat / 4, .09 if j % 2 else .05)
             add(saw(root, .22, 7) * np.minimum(1, T(.22) * 300) * np.exp(-8 * T(.22)), b + beat / 2, .5)
-            if k % 4 in (1, 3):
+            if STAB == "pluck":  # marimba-ish chord plucks on every offbeat
+                tp = T(.3); add(sum(np.sin(2 * np.pi * f * h * tp) * .6 ** (h - 1) * np.exp(-(10 + 6 * h) * tp) for f in chord for h in (1, 2, 3, 4)), b + beat / 2, .09)
+            elif k % 4 in (1, 3):
                 add(bq(sum(saw(f, .17, 12) for f in chord), "lowpass", 3000) * np.exp(-14 * T(.17)), b + beat / 2, .07)
         else:
             add(kick_lp, b, .5); add(hat, b + beat / 2, .06)
@@ -340,6 +348,13 @@ def synth_sfx(total, events):
         elif kind == "tick":
             tt = T(.03)
             add(np.sin(2 * np.pi * (1800 + 100 * p) * tt) * np.exp(-150 * tt), t, .1)
+        elif kind == "splash":
+            d = .45; tt = T(d)
+            add(bq(rng.standard_normal(len(tt)), "bandpass", [350, 2600]) * np.minimum(1, tt * 200) * np.exp(-9 * tt), t, .35)
+            for j in range(5):
+                tb = T(.05); add(np.sin(2 * np.pi * (500 + 160 * j) * tb * (1 + 6 * tb)) * np.exp(-60 * tb), t + .04 + j * .05, .12)
+        elif kind == "thump":
+            tt = T(.3); add(np.sin(2 * np.pi * (45 * tt + 6 * (1 - np.exp(-25 * tt)))) * np.exp(-12 * tt) + rng.standard_normal(len(tt)) * np.exp(-60 * tt) * .3, t, .5)
         elif kind == "glitch":
             for j in range(6):
                 tt = T(.025)
@@ -401,7 +416,7 @@ def main():
     frames = os.path.join(BUILD, "frames")
     shutil.rmtree(frames, ignore_errors=True); os.makedirs(frames)
     npm_root = subprocess.check_output(["npm", "root", "-g"], text=True).strip()
-    run(["node", os.path.join(HERE, "render.cjs"), os.path.join(HERE, "scene.html"), frames, str(FPS), str(total), "4"],
+    run(["node", RENDER, os.path.join(HERE, "scene.html"), frames, str(FPS), str(total), "4"],
         env={**os.environ, "NODE_PATH": npm_root})
     events = json.load(open(os.path.join(BUILD, "sfx.json")))
     drop = next(t for t, k, _ in events if k == "drop")
