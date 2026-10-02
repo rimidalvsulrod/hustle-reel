@@ -7,6 +7,7 @@ beat + ducking -> 1080x1920 H.264 MP4.
 
 Usage:
   GEMINI_API_KEY=... python3 reel/make_reel.py          # real Gemini voiceover
+  python3 reel/make_reel.py --local-tts                  # fallback: local Piper (or espeak-ng) voice
   python3 reel/make_reel.py --fake-tts                   # pipeline test with tone bursts
 Env: GEMINI_TTS_MODEL (optional model override), GEMINI_VOICE (default Puck).
 """
@@ -100,6 +101,24 @@ def gemini_tts(prompt, path):
             except Exception as e:
                 last = f"{model}: {e}"; print(last); break
     sys.exit(f"Gemini TTS failed: {last}")
+
+
+def local_tts(path):
+    """Offline fallback VO: Piper neural TTS (PIPER_MODEL .onnx) if available, else espeak-ng. One clip per beat."""
+    model = os.environ.get("PIPER_MODEL", os.path.join(BUILD, "piper", "en_US-ryan-high.onnx"))
+    use_piper = os.path.exists(model)
+    tmp, out, sr = os.path.join(BUILD, "beat.wav"), [], None
+    for sc in SCENES:
+        for bi, b in enumerate(sc):
+            if use_piper:
+                subprocess.run([sys.executable, "-m", "piper", "-m", model, "-f", tmp, "--length-scale", "0.88"],
+                               input=b["s"].encode(), check=True, capture_output=True)
+            else:
+                run(["espeak-ng", "-v", "en-us+m3", "-s", "185", "-w", tmp, b["s"]])
+            a, sr = read_wav(tmp)
+            out += [a, np.zeros(int((0.2 if bi < len(sc) - 1 else 0.6) * sr), np.float32)]
+    write_wav(path, np.concatenate(out), sr)
+    return "piper:" + os.path.basename(model) if use_piper else "espeak-ng"
 
 
 def fake_tts(path):
@@ -363,11 +382,13 @@ def run(cmd):
 
 
 def main():
-    fake = "--fake-tts" in sys.argv
+    fake, local = "--fake-tts" in sys.argv, "--local-tts" in sys.argv
     os.makedirs(BUILD, exist_ok=True)
-    raw = os.path.join(BUILD, "vo_fake.wav" if fake else "vo_gemini_raw.wav")
+    raw = os.path.join(BUILD, "vo_fake.wav" if fake else "vo_local_raw.wav" if local else "vo_gemini_raw.wav")
     if fake:
         fake_tts(raw)
+    elif local:
+        print("Local TTS voice:", local_tts(raw))
     elif not os.path.exists(raw) or "--regen" in sys.argv:
         model = gemini_tts(STYLE + "\n".join(LINES), raw)
         json.dump({"model": model, "voice": VOICE}, open(os.path.join(BUILD, "tts_meta.json"), "w"))
