@@ -348,7 +348,7 @@ def synth_sfx(total, events):
             add(bq(rng.standard_normal(len(tt)), "highpass", 1200) * r * .5 + np.sin(2 * np.pi * (180 * tt + 650 * tt ** 2 / d)) * r * .2, t - d, .5)
         elif kind == "sweep":
             d = .7; tt = T(d)
-            add(bq(bq(rng.standard_normal(len(tt)), "highpass", 3000), "lowpass", 9000) * (tt / d) ** 2, t, .3)
+            add(bq(bq(rng.standard_normal(len(tt)), "highpass", 3000), "lowpass", 9000) * (tt / d) ** 2 * np.minimum(1, (d - tt) / .1), t, .3)
         elif kind == "pop":
             d = .09; tt = T(d)
             add(np.sin(2 * np.pi * ((650 + 90 * p) * tt + 2600 * tt ** 2)) * np.exp(-40 * tt), t, .16)

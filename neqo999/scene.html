@@ -145,7 +145,7 @@ function scene(t0, t1, kin) {
     else { K(sc, 'o', [t0 - .03, 0], [t0 + .12, 1]); K(sc, 's', [t0 - .05, .965], [t0 + .3, 1]); K(sc, 'b', [t0 - .05, 10], [t0 + .2, 0]); }
     sfx(t0, 'whoosh');
   }
-  if (!last) { K(sc, 'o', [t1 - .1, 1], [t1 + .05, 0, 'io']); K(sc, 's', [t1 - .1, 1], [t1 + .05, 1.035, 'io']); K(sc, 'b', [t1 - .1, 0], [t1 + .05, 8, 'io']); }  // short crossfade: no blank frame, no readable double exposure
+  if (!last) { K(sc, 'o', [t1 - .06, 1], [t1 + .09, 0, 'io']); K(sc, 's', [t1 - .06, 1], [t1 + .09, 1.035, 'io']); K(sc, 'b', [t1 - .06, 0], [t1 + .09, 10, 'io']); }  // short crossfade: no blank frame, no readable double exposure
   K(inner, 's', [t0, 1], [t1, 1.025, 'lin']);
   return inner;
 }
@@ -396,7 +396,7 @@ B.strategy = (p, l, t0) => {
 B.price = (p, l, t0) => {
   const w = l.w;
   headline(p, 'Your marketing | *team* for', w.slice(0, 4), 330, 112);
-  const tc = w[2] + .3;  // the team lands in the Ultra card
+  const tc = Math.min(w[2] + .3, w[4] - .1);  // the team lands in the Ultra card (in place before the slam)
   const glow = $('div', 'abs', p, 'left:40px;top:480px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(circle,rgba(196,181,253,.55),rgba(244,114,182,.18) 40%,rgba(255,255,255,0) 68%)');
   K(glow, 'o', [tc, 0], [tc + .4, 1]);
   const card = $('div', 'abs', p, `left:150px;top:640px;width:780px;height:720px;border-radius:52px;padding:4px;background:${GRAD135};box-shadow:0 40px 110px rgba(124,58,237,.28)`);
@@ -409,7 +409,7 @@ B.price = (p, l, t0) => {
      <span class="mo" style="font-weight:800;font-size:76px;margin:0 0 28px 6px;letter-spacing:-.03em">/mo</span>`);
   const ts = w[4] - .03;
   K(price, 'o', [ts, 0], [ts + .06, 1]); K(price, 's', [ts, 1.35], [ts + .4, 1, 'back']); K(price, 'b', [ts, 18], [ts + .2, 0]);
-  const mo = price.querySelector('.mo'); K(mo, 'o', [w[8] - .08, 0], [w[8] + .07, 1]); K(mo, 'x', [w[8] - .08, -30], [w[8] + .22, 0]);  // lands on 'a month'
+  const mo = price.querySelector('.mo'); K(mo, 'o', [w[7] + .1, 0], [w[7] + .25, 1]); K(mo, 'x', [w[7] + .1, -30], [w[7] + .37, 0]);  // between 'dollars' and 'a month'
   const sh = $('div', 'abs', price, 'left:0;top:-60px;width:150px;height:420px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.9),rgba(255,255,255,0))');
   K(sh, 'x', [w[6] - .05, -200], [w[6] + .4, 820, 'lin']); K(sh, 'r', [0, 16]); sfx(w[6], 'shimmer');
   const flashT = ts + .02;
@@ -428,7 +428,7 @@ B.end = (p, l, t0) => {
   const n = nMark(p, 540, 560, 150); K(n, 'o', [w[0] - .05, 0], [w[0] + .08, 1]); K(n, 's', [w[0] - .05, .5], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 14], [w[0] + .2, 0]);
   halo(p, 540, 560, 122, w[0], .6, 6);
   headline(p, 'NEQO Digital —', [w[0] + .02, w[1], w[1] + .12], 730, 96);
-  headline(p, 'Plans from *$299/mo.*', [w[2], w[3], w[4]], 852, 96);
+  headline(p, 'Plans from *$299/mo.*', [w[2], w[3] + .12, w[4] + .17], 852, 96);
   const nc = headline(p, 'No contracts.', [w[10], w[11]], 974, 96);
   K(nc.el, 's', [w[10] - .06, 1.25], [w[10] + .3, 1, 'back']); sfx(w[10], 'thump');
   const tu = w[11] + .3;

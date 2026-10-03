@@ -41,9 +41,9 @@ base.BPM, base.STAB = 124, "pluck"
 base.PROG = [(55.0, (220.0, 277.18, 329.63, 415.30)), (46.25, (185.0, 220.0, 277.18, 329.63)),
              (73.42, (185.0, 220.0, 277.18, 329.63)), (41.20, (220.0, 246.94, 277.18, 329.63))]
 base.CRF, base.MUSIC_GAIN = 16, 0.5  # low CRF: the light gradients band at higher values
-base.SFX_GAIN = {"drop": .6, "sweep": .5, "shimmer": .6, "impact": .8, "thump": .8, "glitch": .8}
+base.SFX_GAIN = {"drop": .5, "sweep": .5, "shimmer": .6, "impact": .7, "thump": .8, "glitch": .8}
 base.X264 = "ref=4:aq-mode=3"  # keeps bits in the flat pastel gradients
-base.DUCK = dict(threshold=.06, ratio=3, attack=10, release=420)
+base.DUCK = dict(threshold=.06, ratio=2, attack=15, release=900)  # shallow + slow: no pumping between lines
 base.SFX_DUCK = dict(threshold=.08, ratio=2.5, attack=5, release=250)
 
 
