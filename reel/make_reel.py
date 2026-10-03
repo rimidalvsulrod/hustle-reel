@@ -24,6 +24,8 @@ LEAD, HOLD, MAX_VO = 0.35, 2.0, 27.0
 RENDER = os.path.join(HERE, "render.cjs")
 # music: tempo, (bass root, chord) per bar, chord-stab sound ("saw" stabs or "pluck")
 BPM, STAB = 124, "saw"
+CRF, MUSIC_GAIN = 18, 0.42  # final x264 quality; music level before ducking
+MUSIC_POST = None  # optional fn(music, events) -> music, e.g. one-beat dropouts
 PROG = [(55.0, (220.0, 261.63, 329.63)), (43.65, (174.61, 220.0, 261.63)),
         (65.41, (196.0, 261.63, 329.63)), (49.0, (196.0, 246.94, 293.66))]
 
@@ -355,6 +357,9 @@ def synth_sfx(total, events):
                 tb = T(.05); add(np.sin(2 * np.pi * (500 + 160 * j) * tb * (1 + 6 * tb)) * np.exp(-60 * tb), t + .04 + j * .05, .12)
         elif kind == "thump":
             tt = T(.3); add(np.sin(2 * np.pi * (45 * tt + 6 * (1 - np.exp(-25 * tt)))) * np.exp(-12 * tt) + rng.standard_normal(len(tt)) * np.exp(-60 * tt) * .3, t, .5)
+        elif kind == "shimmer":  # bright rising bell arpeggio
+            for j, f0 in enumerate((1318.5, 1661.2, 1975.5, 2637.0)):
+                tb = T(.5); add((np.sin(2 * np.pi * f0 * tb) + .3 * np.sin(4 * np.pi * f0 * tb)) * np.exp(-7 * tb), t + j * .055, .07)
         elif kind == "glitch":
             for j in range(6):
                 tt = T(.025)
@@ -377,7 +382,8 @@ def fetch_fonts():
         urllib.request.urlretrieve(url, os.path.join(d, f"Inter-{w}.ttf"))
 
 
-def main():
+def prepare():
+    """TTS (cached) -> alignment -> tightened VO -> build/timeline.js. Returns the reel length."""
     os.makedirs(BUILD, exist_ok=True)
     fetch_fonts()
     raw = os.path.join(BUILD, "vo_gemini_raw.wav")
@@ -412,7 +418,12 @@ def main():
     total = round(min(30.0, LEAD + vo_len + HOLD), 3)
     print(f"VO {vo_len:.2f}s (tempo {tempo:.3f}); reel {total:.2f}s; line starts:", ", ".join(f"{l['t0']:.2f}" for l in lines))
     open(os.path.join(BUILD, "timeline.js"), "w").write("window.TL = " + json.dumps({"total": total, "lines": lines}) + ";\n")
+    return total
 
+
+def render(total):
+    """Frames from scene.html -> music + SFX from the page's cue list -> mixed, encoded MP4."""
+    vo_t = os.path.join(BUILD, "vo_final.wav")
     frames = os.path.join(BUILD, "frames")
     shutil.rmtree(frames, ignore_errors=True); os.makedirs(frames)
     npm_root = subprocess.check_output(["npm", "root", "-g"], text=True).strip()
@@ -421,21 +432,28 @@ def main():
     events = json.load(open(os.path.join(BUILD, "sfx.json")))
     drop = next(t for t, k, _ in events if k == "drop")
     music, sfx = os.path.join(BUILD, "music.wav"), os.path.join(BUILD, "sfx.wav")
-    write_wav(music, synth_music(total, drop), SR)
+    mus = synth_music(total, drop)
+    write_wav(music, MUSIC_POST(mus, events) if MUSIC_POST else mus, SR)
     write_wav(sfx, synth_sfx(total, events), SR)
 
     fc = (f"[1:a]adelay={int(LEAD * 1000)}:all=1,apad,highpass=f=90,equalizer=f=3200:t=q:w=1.2:g=2.5,"
           f"acompressor=threshold=0.1:ratio=3:attack=5:release=90:makeup=1.6,asplit=2[vo][sc];"
-          f"[2:a]volume=0.42[mu];[mu][sc]sidechaincompress=threshold=0.035:ratio=5:attack=8:release=260[duck];"
+          f"[2:a]volume={MUSIC_GAIN}[mu];[mu][sc]sidechaincompress=threshold=0.035:ratio=5:attack=8:release=260[duck];"
           f"[vo][duck][3:a]amix=inputs=3:duration=first:normalize=0,atrim=0:{total:.3f},"
           f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample={SR},aformat=channel_layouts=stereo[a];"
           f"[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]")
     run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d.jpg"),
          "-i", vo_t, "-i", music, "-i", sfx, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-         "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high", "-r", str(FPS),
+         "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high", "-r", str(FPS),
          "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
          "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{total:.3f}", OUT])
     print("wrote", OUT, f"{os.path.getsize(OUT) / 1e6:.1f} MB")
+
+
+def main():
+    total = prepare()
+    if "--timeline-only" not in sys.argv:
+        render(total)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ const { chromium } = require('playwright');
     if (k === 0) sfx = s;
     for (let i = k; i < N; i += W) {  // workers interleave frames
       await page.evaluate(t => window.seek(t), i / +fps);
-      await page.screenshot({ path: path.join(out, `f_${String(i).padStart(5, '0')}.jpg`), type: 'jpeg', quality: 92 });
+      await page.screenshot({ path: path.join(out, `f_${String(i).padStart(5, '0')}.jpg`), type: 'jpeg', quality: +(process.env.JPEG_Q || 92) });
       if (++done % 150 === 0) console.log(`${done}/${N} frames`);
     }
   }));

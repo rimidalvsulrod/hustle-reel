@@ -1,0 +1,468 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>NEQO Ultra $999 reel</title>
+<!-- Light-theme motion graphics for the NEQO Digital Ultra ($999/mo) reel. Driven by build/timeline.js (VO-synced
+     word times); ../reel/render.cjs calls window.build() once, then window.seek(t) per frame. -->
+<style>
+@font-face{font-family:I;src:url(build/fonts/Inter-500.ttf);font-weight:500}
+@font-face{font-family:I;src:url(build/fonts/Inter-600.ttf);font-weight:600}
+@font-face{font-family:I;src:url(build/fonts/Inter-700.ttf);font-weight:700}
+@font-face{font-family:I;src:url(build/fonts/Inter-800.ttf);font-weight:800}
+@font-face{font-family:I;src:url(build/fonts/Inter-900.ttf);font-weight:900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#F8F9FD;font-family:I,sans-serif;color:#0B1033;-webkit-font-smoothing:antialiased}
+#bg,#cam,#over,#fx,#grain,.scene,.inner{position:absolute;inset:0}
+.abs{position:absolute}
+.row{display:flex;align-items:center}
+.hl{position:absolute;left:60px;right:60px;text-align:center;font-weight:900;line-height:1.04;letter-spacing:-.042em;color:#0B1033;white-space:nowrap}
+.w{display:inline-block;padding:.03em .03em .1em;margin:0 -.03em}
+.w.g{background-image:linear-gradient(90deg,#2563EB 0%,#7C3AED 38%,#DB2777 70%,#F97316 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.card{position:absolute;background:rgba(255,255,255,.95);border:1.5px solid rgba(225,230,243,.95);border-radius:40px;box-shadow:0 34px 90px rgba(37,64,180,.13),0 6px 18px rgba(11,16,51,.05)}
+.pill{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:12px 26px;font-weight:700;white-space:nowrap}
+.chip{position:absolute;display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:14px 26px;font-weight:700;font-size:30px;white-space:nowrap;background:#fff;color:#0B1033;border:1.5px solid #E3E7F2;box-shadow:0 18px 44px rgba(37,64,180,.14)}
+.tag{position:absolute;font-weight:700;font-size:19px;letter-spacing:.12em;color:#8A92AD;background:#F1F3F9;border-radius:999px;padding:7px 14px}
+.disc{display:flex;align-items:center;justify-content:center;border-radius:50%;flex:none;background:linear-gradient(135deg,#2563EB 0%,#7C3AED 50%,#DB2777 100%)}
+.muted{color:#5B6382}
+</style></head>
+<body><svg width="0" height="0" style="position:absolute"><defs>
+  <linearGradient id="gs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563EB"/><stop offset=".45" stop-color="#7C3AED"/><stop offset=".75" stop-color="#DB2777"/><stop offset="1" stop-color="#F97316"/></linearGradient>
+  <linearGradient id="gh" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563EB"/><stop offset=".4" stop-color="#7C3AED"/><stop offset=".72" stop-color="#DB2777"/><stop offset="1" stop-color="#F97316"/></linearGradient>
+</defs></svg>
+<div id="bg"></div><div id="cam"></div><div id="over"></div><div id="fx"></div><div id="grain"></div>
+<script src="build/timeline.js"></script>
+<script src="assets/icons.js"></script>
+<script src="assets/logo.js"></script>
+<script>
+const TL = window.TL, BG = document.getElementById('bg'), CAM = document.getElementById('cam'), OVER = document.getElementById('over'), FX = document.getElementById('fx');
+const LN = Object.fromEntries(TL.lines.map((l) => [l.id, l]));
+const INK = '#0B1033', SLATE = '#5B6382', MINT = '#12B76A', GOLD = '#F5B301', CORAL = '#F2575B';
+const GRAD = 'linear-gradient(90deg,#2563EB 0%,#7C3AED 38%,#DB2777 70%,#F97316 100%)';
+const GRAD135 = 'linear-gradient(135deg,#2563EB 0%,#7C3AED 45%,#DB2777 80%,#F97316 100%)';
+const ico = (n, sz = 32, col = 'currentColor', sw = 2.2) =>
+  `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" style="flex:none;display:block">${ICONS[n]}</svg>`;
+const gtxt = (s) => `<span style="background:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent">${s}</span>`;
+
+// ---------------------------------------------------------------- tiny deterministic animation engine
+const E = {lin: (x) => x, out: (x) => 1 - (1 - x) ** 3, inn: (x) => x ** 3, io: (x) => (x < .5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2),
+  back: (x) => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2, expo: (x) => (x >= 1 ? 1 : 1 - 2 ** (-10 * x))};
+const ELS = new Map(), HOOKS = [], SFX = [], SHAKES = [], HLS = [];
+const DEF = {x: 0, y: 0, s: 1, sx: 1, r: 0, o: 1, b: 0, sk: 0};
+function K(el, prop, ...keys) {  // keys: [time, value, easing-into-this-key]
+  let s = ELS.get(el); if (!s) ELS.set(el, s = {});
+  (s[prop] = s[prop] || []).push(...keys); s[prop].sort((a, b) => a[0] - b[0]);
+}
+function val(k, t) {
+  if (t <= k[0][0]) return k[0][1];
+  for (let i = 1; i < k.length; i++) if (t < k[i][0]) {
+    const [a, va] = k[i - 1], [b, vb, e] = k[i]; return va + (vb - va) * E[e || 'out']((t - a) / (b - a));
+  }
+  return k[k.length - 1][1];
+}
+function seek(t) {
+  for (const [el, s] of ELS) {
+    const v = {...DEF}; for (const p in s) v[p] = val(s[p], t);
+    el.style.opacity = v.o; el.style.visibility = v.o < .002 ? 'hidden' : 'visible';
+    el.style.transform = `translate(${v.x}px,${v.y}px) rotate(${v.r}deg) skewX(${v.sk}deg) scale(${v.s * v.sx},${v.s})`;
+    el.style.filter = v.b > .05 ? `blur(${v.b.toFixed(2)}px)` : 'none';
+  }
+  let dx = 0, dy = 0;
+  for (const [t0, a] of SHAKES) if (t >= t0) { const q = t - t0, d = a * Math.exp(-q * 10); dx += d * Math.sin(q * 71); dy += d * Math.cos(q * 53); }
+  CAM.style.transform = OVER.style.transform = `translate(${dx}px,${dy}px)`;
+  for (const h of HOOKS) h(t);
+}
+function $(tag, cls, parent, css, html) {
+  const e = document.createElement(tag); if (cls) e.className = cls; if (css) e.style.cssText = css; if (html != null) e.innerHTML = html;
+  parent.appendChild(e); return e;
+}
+const sfx = (t, type, p = 0) => SFX.push([+t.toFixed(3), type, p]);
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+function reveal(el, t, d = .3, dy = 40) {
+  K(el, 'o', [t, 0], [t + d * .6, 1]); K(el, 'b', [t, 10], [t + d, 0]); K(el, 'y', [t, dy], [t + d, 0]); K(el, 's', [t, .96], [t + d, 1]);
+}
+function pop(el, t, from = .5, snd = 0) {
+  K(el, 'o', [t, 0], [t + .1, 1]); K(el, 's', [t, from], [t + .42, 1, 'back']); K(el, 'b', [t, 8], [t + .2, 0]);
+  if (snd !== null) sfx(t, 'pop', snd);
+}
+function slide(el, t, dx, dy, d = .5, ease = 'out') { K(el, 'o', [t, 0], [t + .2, 1]); K(el, 'x', [t, dx], [t + d, 0, ease]); K(el, 'y', [t, dy], [t + d, 0, ease]); K(el, 'b', [t, 12], [t + .3, 0]); }
+const shake = (t, a) => SHAKES.push([t, a]);
+function typeText(el, txt, t0, t1) { HOOKS.push((t) => { el.textContent = txt.slice(0, Math.round(clamp01((t - t0) / (t1 - t0)) * txt.length)); }); }
+function drawStroke(path, t0, d) {  // SVG stroke draw-on
+  const L = path.getTotalLength(); path.style.strokeDasharray = L;
+  HOOKS.push((t) => { path.style.strokeDashoffset = L * (1 - E.out(clamp01((t - t0) / d))); });
+}
+
+// headline: tokens split on spaces, '|' = line break, *...* = gradient words; ws[i] = reveal time of word i
+function headline(p, txt, ws, top, size = 104, css = '') {
+  const el = $('div', 'hl', p, `top:${top}px;font-size:${size}px;${css}`), words = [];
+  let g = false;
+  for (const tok of txt.split(' ')) {
+    if (tok === '|') { $('br', null, el); continue; }
+    let w = tok; if (w[0] === '*') { g = true; w = w.slice(1); }
+    const end = w.endsWith('*'); if (end) w = w.slice(0, -1);
+    const sp = $('span', 'w' + (g ? ' g' : ''), el); sp.textContent = w; words.push(sp);
+    el.appendChild(document.createTextNode(' '));
+    if (end) g = false;
+  }
+  words.forEach((w, i) => ws[i] != null && reveal(w, ws[i] - .06));
+  HLS.push(el); return {el, words};
+}
+function fitAndGrade() {  // shrink lines that would overflow, then one continuous gradient per highlighted phrase
+  for (const el of HLS) {
+    let fs = parseFloat(el.style.fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && fs > 40) { fs -= 3; el.style.fontSize = fs + 'px'; }
+    const gs = [...el.querySelectorAll('.w.g')]; if (!gs.length) continue;
+    const L = Math.min(...gs.map((g) => g.offsetLeft)), R = Math.max(...gs.map((g) => g.offsetLeft + g.offsetWidth));
+    for (const g of gs) { g.style.backgroundSize = `${R - L}px 100%`; g.style.backgroundPosition = `${L - g.offsetLeft}px 0`; }
+  }
+}
+
+// ---------------------------------------------------------------- airy background: pastel aurora + dot grid + glow + grain
+function buildBG() {
+  const B = [[-330, -260, 1300, '186,214,255', .9], [470, 140, 1150, '222,208,255', .85], [-420, 1080, 1300, '255,212,230', .75], [430, 1230, 1200, '255,226,204', .8]]
+    .map(([x, y, d, c, a]) => $('div', 'abs', BG, `left:${x}px;top:${y}px;width:${d}px;height:${d}px;border-radius:50%;background:radial-gradient(circle,rgba(${c},${a}) 0%,rgba(${c},${a * .55}) 32%,rgba(${c},0) 68%)`));
+  $('div', 'abs', BG, 'inset:0;background-image:radial-gradient(rgba(11,16,51,.085) 1.7px,transparent 2px);background-size:36px 36px;-webkit-mask-image:radial-gradient(ellipse 80% 62% at 50% 46%,#000 25%,transparent 100%)');
+  $('div', 'abs', BG, 'inset:0;background:radial-gradient(ellipse 62% 42% at 50% 44%,rgba(255,255,255,.9),rgba(255,255,255,0) 72%)');
+  HOOKS.push((t) => B.forEach((b, i) => { b.style.transform = `translate(${Math.sin(t * .32 + i * 1.9) * 70}px,${Math.cos(t * .27 + i * 1.3) * 60}px) scale(${1 + .06 * Math.sin(t * .4 + i)})`; }));
+  document.getElementById('grain').style.cssText += `;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.04 0 0 0 0 0.06 0 0 0 0 0.2 0 0 0 .6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");opacity:.05;pointer-events:none`;
+}
+
+// ---------------------------------------------------------------- transitions
+function bloom(t, a = .85) {  // white light bloom + expanding gradient ring
+  const f = $('div', 'abs', FX, 'inset:0;background:radial-gradient(circle at 50% 46%,#fff 0%,rgba(255,255,255,.85) 30%,rgba(255,255,255,0) 72%)');
+  K(f, 'o', [t - .02, 0], [t + .03, a, 'lin'], [t + .45, 0]);
+  const r = $('div', 'abs', FX, 'left:290px;top:710px;width:500px;height:500px;border-radius:50%;padding:6px;background:' + GRAD135 + ';-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude');
+  K(r, 's', [t, .2], [t + .8, 2.9]); K(r, 'o', [t - .01, 0], [t, .9, 'lin'], [t + .8, 0]);
+}
+function wipe(t) {  // prismatic light-band sweeping across the cut
+  const band = $('div', 'abs', FX, 'left:0;top:-500px;width:300px;height:2900px;transform-origin:center');
+  $('div', '', band, `width:100%;height:100%;transform:rotate(16deg);filter:blur(26px);background:linear-gradient(90deg,rgba(255,255,255,0),rgba(37,99,235,.35) 22%,rgba(255,255,255,.95) 42%,rgba(255,255,255,.95) 52%,rgba(219,39,119,.32) 72%,rgba(249,115,22,.0))`);
+  K(band, 'x', [t - .2, -700], [t + .16, 1500, 'lin']); K(band, 'o', [t - .2, 1], [t + .16, 1]);
+}
+function scene(t0, t1, kin) {
+  const sc = $('div', 'scene', CAM), inner = $('div', 'inner', sc), first = t0 <= .001, last = t1 >= TL.total - .001;
+  if (!first) {
+    if (kin === 'wipe') { wipe(t0); K(sc, 'o', [t0 - .07, 0], [t0 + .02, 1, 'lin']); K(sc, 'x', [t0 - .07, 50], [t0 + .3, 0]); }
+    else if (kin === 'bloom') { bloom(t0); K(sc, 'o', [t0 - .03, 0], [t0 + .1, 1]); K(sc, 's', [t0 - .03, 1.06], [t0 + .35, 1]); }
+    else { K(sc, 'o', [t0 - .05, 0], [t0 + .14, 1]); K(sc, 's', [t0 - .05, .965], [t0 + .3, 1]); K(sc, 'b', [t0 - .05, 10], [t0 + .2, 0]); }
+    sfx(t0, 'whoosh');
+  }
+  if (!last) { K(sc, 'o', [t1 - .1, 1], [t1 + .08, 0, 'inn']); K(sc, 's', [t1 - .1, 1], [t1 + .08, 1.035, 'inn']); K(sc, 'b', [t1 - .1, 0], [t1 + .08, 8, 'inn']); }
+  K(inner, 's', [t0, 1], [t1, 1.025, 'lin']);
+  return inner;
+}
+const exampleTag = (p, x, y) => $('div', 'tag', p, `left:${x}px;top:${y}px`, 'EXAMPLE');
+function chip(p, x, y, icon, text, col = INK) {
+  return $('div', 'chip', p, `left:${x}px;top:${y}px`, `<span class="disc" style="width:44px;height:44px">${ico(icon, 24, '#fff', 2.4)}</span><span style="color:${col}">${text}</span>`);
+}
+function nMark(p, cx, cy, h, bg = GRAD135) {  // NEQO "N" mark cut from the logo PNG, tinted via mask
+  const w = h * 260 / 250;
+  return $('div', 'abs', p, `left:${cx - w / 2}px;top:${cy - h / 2}px;width:${w}px;height:${h}px;background:${bg};-webkit-mask:url(${LOGO_N}) center/contain no-repeat;mask:url(${LOGO_N}) center/contain no-repeat`);
+}
+function halo(p, cx, cy, r, t0, d = .6, sw = 6) {
+  const s = $('div', 'abs', p, `left:${cx - r - 10}px;top:${cy - r - 10}px;width:${2 * r + 20}px;height:${2 * r + 20}px`,
+    `<svg width="${2 * r + 20}" height="${2 * r + 20}"><circle cx="${r + 10}" cy="${r + 10}" r="${r}" fill="none" stroke="url(#gs)" stroke-width="${sw}" stroke-linecap="round" transform="rotate(-90 ${r + 10} ${r + 10})"/></svg>`);
+  drawStroke(s.querySelector('circle'), t0, d); return s;
+}
+
+// ---------------------------------------------------------------- the team (signature device)
+const TEAM = [['app-window', 'Website'], ['map-pin', 'Local SEO'], ['message-circle-heart', 'Social'], ['star', 'Reviews'],
+  ['chart-column-increasing', 'Reports'], ['headset', 'Strategy &amp; Support']];
+const SLOT = (i) => [105 + (i % 2) * 450, 790 + Math.floor(i / 2) * 210];  // 420x180 board slots
+const BAR = (i) => [298 + i * 84 + 32, 250];                               // team-bar chip centres (64px chips)
+
+function buildTeam(S) {  // S: scene start times by id
+  const hook = LN.hook.w, meet = LN.meet.w, price = LN.price.w;
+  const tAsm = meet[4] - .12, tBar = S.website, tFold = price[2];
+  const board = $('div', 'abs', OVER, 'inset:0'), g = S.meet - .27;  // the board glitches with the hook headline
+  K(board, 'x', [g, 0], [g + .05, -22, 'lin'], [g + .1, 18, 'lin'], [g + .15, -10, 'lin'], [g + .2, 6, 'lin'], [g + .25, 0, 'lin']);
+  K(board, 'sk', [g, 0], [g + .05, -6, 'lin'], [g + .1, 5, 'lin'], [g + .15, -3, 'lin'], [g + .25, 0, 'lin']);
+  TEAM.forEach(([icon, name], i) => {
+    const [x, y] = SLOT(i);
+    // empty dashed slot with a coral "?" (the problem: nobody runs this)
+    const slot = $('div', 'abs row', board, `left:${x}px;top:${y}px;width:420px;height:180px;border:3px dashed #C3CADF;border-radius:34px;background:rgba(255,255,255,.5);padding:0 30px;gap:22px`,
+      `<span class="disc" style="width:80px;height:80px;background:#EEF1F8">${ico(icon, 38, '#A3ABC3', 2.2)}</span><span style="font-weight:700;font-size:${name.length > 12 ? 28 : 34}px;color:#9AA3BE;line-height:1.15">${name}</span>`);
+    const q = $('div', 'abs row', board, `left:${x + 372}px;top:${y - 18}px;width:58px;height:58px;border-radius:50%;background:${CORAL};color:#fff;font-weight:900;font-size:36px;justify-content:center;box-shadow:0 10px 24px rgba(242,87,91,.35)`, '?');
+    pop(q, hook[3] + .05 + i * .05, .2, i);
+    K(slot, 'r', [hook[4], 0], [hook[4] + .08, i % 2 ? 2.5 : -2.5, 'lin'], [hook[4] + .16, i % 2 ? -2 : 2, 'lin'], [hook[4] + .24, i % 2 ? 1 : -1, 'lin'], [hook[4] + .32, 0, 'lin']);
+    K(slot, 'o', [0, 1], [tAsm + i * .06 + .2, 1], [tAsm + i * .06 + .32, 0]); K(q, 'o', [tAsm + i * .06 + .1, 1], [tAsm + i * .06 + .2, 0]);
+    // filled badge flies in on "assembled."
+    const badge = $('div', 'card row', board, `left:${x}px;top:${y}px;width:420px;height:180px;border-radius:34px;padding:0 28px;gap:22px`,
+      `<span class="disc" style="width:84px;height:84px;box-shadow:0 10px 26px rgba(124,58,237,.3)">${ico(icon, 40, '#fff', 2.3)}</span>
+       <span><span style="display:block;font-weight:800;font-size:${name.length > 12 ? 29 : 36}px;line-height:1.12;letter-spacing:-.02em">${name}</span>
+       <span class="row" style="margin-top:8px;gap:8px;font-weight:700;font-size:22px;color:${MINT}">${ico('circle-check', 22, MINT, 2.6)}ON IT</span></span>`);
+    const t = tAsm + i * .06, dx = (i % 2 ? 1 : -1) * 760;
+    K(badge, 'o', [t, 0], [t + .08, 1]); K(badge, 'x', [t, dx], [t + .42, 0, 'back']); K(badge, 'y', [t, 120 - Math.floor(i / 2) * 60], [t + .42, 0, 'back']);
+    K(badge, 'r', [t, (i % 2 ? 9 : -9)], [t + .42, 0, 'back']); K(badge, 'b', [t, 14], [t + .25, 0]);
+    sfx(t + .3, 'pop', i);
+    // badge folds into its team-bar chip at the cut to the first feature scene
+    const [cx, cy] = BAR(i), bx = x + 210, by = y + 90;
+    K(badge, 'x', [tBar - .24, 0], [tBar + .14, cx - bx, 'io']); K(badge, 'y', [tBar - .24, 0], [tBar + .14, cy - by, 'io']);
+    K(badge, 's', [tBar - .24, 1], [tBar + .14, .16, 'io']); K(badge, 'o', [tBar + .06, 1], [tBar + .16, 0]);
+  });
+  // persistent team bar: one chip per function; the active one glows, finished ones get a check
+  const order = ['website', 'seo', 'social', 'reviews', 'report', 'strategy'];
+  TEAM.forEach(([icon], i) => {
+    const [cx, cy] = BAR(i), id = order[i];
+    const base = $('div', 'abs row', OVER, `left:${cx - 32}px;top:${cy - 32}px;width:64px;height:64px;border-radius:50%;background:#fff;border:1.5px solid #E3E7F2;justify-content:center;box-shadow:0 10px 26px rgba(37,64,180,.14)`, ico(icon, 30, SLATE, 2.2));
+    pop(base, tBar + .08 + i * .03, .3, null);
+    const act = $('div', 'abs row disc', OVER, `left:${cx - 32}px;top:${cy - 32}px;width:64px;height:64px;box-shadow:0 12px 30px rgba(124,58,237,.45)`, ico(icon, 30, '#fff', 2.4));
+    const a0 = S[id], a1 = S[order[i + 1]] || S.price;
+    K(act, 'o', [a0, 0], [a0 + .15, 1], [a1 - .05, 1], [a1 + .1, 0]); K(act, 's', [a0, .6], [a0 + .4, 1.18, 'back'], [a1 - .05, 1.18], [a1 + .1, 1]);
+    const done = $('div', 'abs row', OVER, `left:${cx + 12}px;top:${cy - 40}px;width:30px;height:30px;border-radius:50%;background:${MINT};justify-content:center;border:2.5px solid #fff`, ico('check', 16, '#fff', 3.2));
+    pop(done, a1 - .02, .2, null);
+    // the whole team folds into the Ultra card on "team"
+    for (const el of [base, done]) {
+      K(el, 'x', [tFold, 0], [tFold + .35, 540 - cx, 'inn']); K(el, 'y', [tFold, 0], [tFold + .35, 980 - cy, 'inn']);
+      K(el, 's', [tFold + .2, 1], [tFold + .35, .3, 'inn']); K(el, 'o', [tFold + .25, 1], [tFold + .36, 0]);
+    }
+  });
+}
+
+// ---------------------------------------------------------------- scenes (one per VO line)
+const S = {};
+const B = {};
+B.hook = (p, l, t0, t1) => {
+  headline(p, 'Want your own | *marketing team?*', l.w, 330, 112);
+  const g = t1 - .27;  // glitch into the drop
+  K(p, 'x', [g, 0], [g + .05, 26, 'lin'], [g + .1, -20, 'lin'], [g + .15, 12, 'lin'], [g + .2, -6, 'lin'], [g + .25, 0, 'lin']);
+  K(p, 'sk', [g, 0], [g + .05, 8, 'lin'], [g + .1, -6, 'lin'], [g + .15, 4, 'lin'], [g + .25, 0, 'lin']);
+  sfx(g, 'glitch');
+};
+B.meet = (p, l, t0) => {
+  const w = l.w;
+  sfx(t0, 'drop'); sfx(t0, 'impact', 1); shake(t0, 10);
+  $('div', 'abs', p, 'left:240px;top:0;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,.35),rgba(167,139,250,0) 65%)');
+  const n = nMark(p, 540, 292, 118); K(n, 'o', [w[0] - .05, 0], [w[0] + .08, 1]); K(n, 's', [w[0] - .05, .45], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 16], [w[0] + .2, 0]);
+  halo(p, 540, 292, 92, w[0], .55, 5);
+  headline(p, 'Meet *Ultra.* | Your team, *assembled.*', w, 430, 100);
+};
+B.website = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'Your *website,* | built and updated.', w, 330, 104);
+  const br = $('div', 'card', p, 'left:80px;top:640px;width:920px;height:600px;overflow:hidden');
+  $('div', 'abs row', br, 'left:0;top:0;right:0;height:70px;padding:0 28px;gap:12px;border-bottom:1.5px solid #EEF1F7;background:#FAFBFE',
+    `<span style="width:16px;height:16px;border-radius:50%;background:#FF6B6B"></span><span style="width:16px;height:16px;border-radius:50%;background:#FFC24B"></span><span style="width:16px;height:16px;border-radius:50%;background:#3DD68C"></span>
+     <span class="row" style="margin-left:70px;height:42px;padding:0 22px;gap:10px;border-radius:12px;background:#EEF1F8;font-weight:600;font-size:22px;color:${SLATE}">${ico('lock', 18, MINT, 2.6)}summitplumbing.com</span>`);
+  exampleTag(br, 770, 18);
+  const tb = w[2] - .1;
+  const nav = $('div', 'abs row', br, 'left:44px;top:100px;right:44px;gap:14px',
+    `<span class="disc" style="width:48px;height:48px;border-radius:14px;background:${GRAD135}">${ico('zap', 26, '#fff', 2.4)}</span><span style="font-weight:800;font-size:30px;flex:1">Summit Plumbing</span>
+     <span style="width:36px;height:4px;border-radius:2px;background:${INK};box-shadow:0 11px 0 ${INK},0 -11px 0 ${INK}"></span>`);
+  reveal(nav, tb, .3, 24);
+  const hero = $('div', 'abs', br, 'left:44px;top:190px;width:470px', `<div style="font-weight:900;font-size:60px;line-height:1.02;letter-spacing:-.04em">Fast, honest plumbing. ${gtxt('Day or night.')}</div>`);
+  reveal(hero, tb + .12, .32, 30);
+  const btns = $('div', 'abs row', br, 'left:44px;top:430px;gap:16px',
+    `<span class="pill" style="background:${INK};color:#fff;font-size:26px;padding:18px 28px">${ico('phone', 24, '#fff', 2.4)}Call now</span>
+     <span class="pill" style="border:2px solid #D7DCEA;font-size:26px;padding:16px 28px">Get a quote</span>`);
+  reveal(btns, tb + .26, .3, 24); sfx(tb + .26, 'tick', 2);
+  const img = $('div', 'abs', br, `left:560px;top:180px;width:316px;height:330px;border-radius:30px;background:linear-gradient(150deg,#DCE7FF 0%,#E9DDFF 55%,#FFE1EC 100%)`,
+    `<div class="disc" style="position:absolute;left:108px;top:115px;width:100px;height:100px;background:#fff;box-shadow:0 14px 30px rgba(37,64,180,.18)">${ico('zap', 46, 'url(#gs)', 2.4)}</div>`);
+  reveal(img, tb + .18, .32, 30);
+  const ph = $('div', 'abs', p, 'left:740px;top:930px;width:250px;height:510px;border-radius:44px;background:#fff;border:9px solid #E5E9F3;box-shadow:0 30px 70px rgba(37,64,180,.2);overflow:hidden',
+    `<div style="height:100%;padding:44px 18px 0;background:#FBFCFF">
+       <div class="row" style="gap:8px"><span class="disc" style="width:30px;height:30px;border-radius:9px;background:${GRAD135}">${ico('zap', 17, '#fff', 2.4)}</span><span style="font-weight:800;font-size:17px">Summit</span></div>
+       <div style="margin-top:18px;font-weight:900;font-size:30px;line-height:1.02;letter-spacing:-.03em">Fast, honest plumbing. ${gtxt('Day or night.')}</div>
+       <div class="pill" style="margin-top:16px;background:${INK};color:#fff;font-size:16px;padding:11px 16px;gap:8px">${ico('phone', 16, '#fff', 2.4)}Call now</div>
+       <div style="margin-top:14px;height:150px;border-radius:18px;background:linear-gradient(150deg,#DCE7FF,#E9DDFF 55%,#FFE1EC)"></div></div>`);
+  slide(ph, w[1] + .05, 120, 80, .5); sfx(w[1] + .05, 'pop', 3);
+  pop(chip(p, 80, 1268, 'layout-template', 'Up to 12 pages'), w[1] + .3, .5, 1);
+  pop(chip(p, 80, 1356, 'mail', 'Edits? Just email us.'), w[4] - .02, .5, 4);
+  const upd = $('div', 'abs pill', br, `left:560px;top:528px;background:#E8F8F0;color:${MINT};font-size:22px;padding:9px 18px;gap:8px`, `${ico('circle-check', 20, MINT, 2.6)}Updated just now`);
+  pop(upd, w[4] + .12, .4, null);
+};
+B.seo = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'Local *SEO* to | climb *Google.*', w, 330, 104);
+  const c = $('div', 'card', p, 'left:80px;top:640px;width:920px;height:790px;overflow:hidden');
+  exampleTag(c, 772, 34);
+  const sb = $('div', 'abs row', c, `left:36px;top:30px;width:700px;height:80px;border-radius:40px;background:#F3F5FB;border:1.5px solid #E6EAF4;padding:0 28px;gap:16px;font-weight:600;font-size:32px`,
+    `${ico('search', 30, SLATE, 2.6)}<span class="q"></span><span style="width:3px;height:36px;background:#7C3AED;margin-left:-10px"></span>`);
+  typeText(sb.querySelector('.q'), 'plumber near me', t0 + .05, t0 + .55);
+  const map = $('div', 'abs', c, 'left:36px;top:136px;width:848px;height:200px;border-radius:26px;background:#EEF2FA;overflow:hidden',
+    `<svg width="848" height="200"><path d="M-10 150 C 200 120, 330 190, 520 120 S 760 40, 870 70" stroke="#fff" stroke-width="22" fill="none"/><path d="M180 -10 L 260 220" stroke="#fff" stroke-width="16"/><path d="M600 -10 C 580 80, 640 140, 620 220" stroke="#fff" stroke-width="16"/><path d="M-10 60 L 870 30" stroke="#fff" stroke-width="10" opacity=".8"/></svg>`);
+  [[150, 70], [420, 40], [700, 110]].forEach(([x, y]) => $('div', 'abs', map, `left:${x}px;top:${y}px`, ico('map-pin', 46, '#9AA3BE', 2.3)));
+  const mine = $('div', 'abs', map, 'left:520px;top:58px', ico('map-pin', 62, 'url(#gs)', 2.6));
+  K(mine, 'y', [w[4] - .05, 0], [w[4] + .12, -22, 'out'], [w[4] + .32, 0, 'out']); K(mine, 's', [w[4] - .05, 1], [w[4] + .12, 1.15], [w[4] + .32, 1]);
+  const list = $('div', 'abs', c, 'left:36px;top:362px;width:848px;height:410px'), RH = 102;
+  const row = (name, rate, i, ours) => $('div', 'abs row', list, `left:0;right:0;top:${i * RH}px;height:${RH - 12}px;padding:0 24px;gap:20px;border-radius:24px;${ours ? 'background:linear-gradient(90deg,rgba(37,99,235,.07),rgba(219,39,119,.07));border:2.5px solid #A78BFA;box-shadow:0 14px 36px rgba(124,58,237,.18)' : ''}`,
+    `<span class="disc" style="width:58px;height:58px;border-radius:16px;background:${ours ? GRAD135 : '#E7EBF4'}">${ico('map-pin', 28, ours ? '#fff' : '#9AA3BE', 2.3)}</span>
+     <span style="flex:1"><span style="display:block;font-weight:800;font-size:30px">${name}</span><span class="row" style="gap:4px;margin-top:4px;font-weight:600;font-size:21px;color:${SLATE}">${('<span style="color:' + GOLD + ';font-size:22px">★</span>').repeat(5)}&nbsp;${rate}</span></span>`);
+  const others = [['Peak Plumbing', '4.7'], ['Metro Pipe Co.', '4.6'], ['BlueLine Plumbing', '4.5']].map(([n, r], i) => {
+    const el = row(n, r, i, false); reveal(el, t0 + .2 + i * .05, .25, 18); return el;
+  });
+  const me = row('Your Business', '4.9', 3, true); reveal(me, t0 + .35, .25, 18);
+  const s1 = w[3] - .05, s2 = w[4] - .05;  // climbs two spots, never to #1
+  K(me, 'y', [s1, 0], [s1 + .3, -RH, 'io'], [s2, -RH], [s2 + .3, -2 * RH, 'io']);
+  K(others[2], 'y', [s1, 0], [s1 + .3, RH, 'io']); K(others[1], 'y', [s2, 0], [s2 + .3, RH, 'io']);
+  sfx(s1, 'tick', 3); sfx(s2, 'tick', 5);
+  const up = $('div', 'abs pill', list, `left:640px;top:${RH + 22}px;background:#E8F8F0;color:${MINT};font-size:24px;padding:8px 16px;gap:6px`, `${ico('trending-up', 22, MINT, 2.6)}Up 2`);
+  pop(up, s2 + .32, .3, 5);
+  pop(chip(p, 560, 584, 'sparkles', 'Monthly local SEO'), w[1] + .05, .5, 2);
+};
+B.social = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'Social posts, | *handled* for you.', w, 330, 104);
+  const posts = [[105, 655, -5, 'camera', GRAD135, 'Spring tune-up special', 'linear-gradient(150deg,#C9DBFF,#E2D4FF 60%,#FFD9E8)'],
+                 [575, 680, 5, 'thumbs-up', 'linear-gradient(135deg,#2563EB,#06B6D4)', 'Fast fix, fair price', 'linear-gradient(150deg,#FFE2CC,#FFD4E3 55%,#E2D4FF)']];
+  posts.forEach(([x, y, rot, g, gbg, cap, img], i) => {
+    const c = $('div', 'card', p, `left:${x}px;top:${y}px;width:400px;height:560px;padding:22px;border-radius:34px`);
+    c.innerHTML = `<div class="row" style="gap:12px"><span class="disc" style="width:52px;height:52px;border-radius:15px;background:${gbg}">${ico(g, 28, '#fff', 2.3)}</span>
+        <span style="font-weight:800;font-size:23px;flex:1">summit.plumbing</span></div>
+      <div style="margin-top:16px;height:300px;border-radius:24px;background:${img};position:relative;overflow:hidden">
+        <div style="position:absolute;left:22px;right:22px;bottom:20px;font-weight:900;font-size:36px;line-height:1.05;letter-spacing:-.03em;color:#0B1033">${cap}</div></div>
+      <div class="row" style="margin-top:20px;gap:20px">${ico('heart', 32, '#F43F5E', 2.4)}${ico('message-circle', 32, SLATE, 2.2)}${ico('send', 30, SLATE, 2.2)}</div>`;
+    exampleTag(c, 262, 106);
+    K(c, 'r', [t0, rot * 3], [t0 + .55, rot, 'back']); slide(c, t0 + .02 + i * .1, (i ? 1 : -1) * 260, 80, .55);
+    const sch = $('div', 'abs pill', c, `right:22px;bottom:26px;background:#F1F3F9;color:${SLATE};font-size:20px;padding:8px 14px`, 'Scheduled');
+    K(sch, 'o', [w[2] + .02 + i * .1, 1], [w[2] + .12 + i * .1, 0]);
+    pop($('div', 'abs pill', c, `right:22px;bottom:26px;background:#E8F8F0;color:${MINT};font-size:20px;padding:8px 14px;gap:6px`, `${ico('check', 18, MINT, 3)}Posted`), w[2] + .06 + i * .1, .4, null);
+    pop($('div', 'abs disc', p, `left:${x - 26}px;top:${y - 26}px;width:96px;height:96px;box-shadow:0 14px 34px rgba(124,58,237,.4);border:5px solid #fff`, ico('check', 50, '#fff', 3)), w[2] + i * .1, .3, 4 + i);
+  });
+  const cal = $('div', 'card row', p, 'left:140px;top:1282px;width:800px;height:130px;padding:0 34px;justify-content:space-between;border-radius:32px');
+  'MTWTFSS'.split('').forEach((d, i) => {
+    const on = [0, 2, 4].includes(i);
+    const cell = $('div', '', cal, 'width:76px;text-align:center;position:relative', `<div style="font-weight:700;font-size:24px;color:${SLATE}">${d}</div><div style="margin:12px auto 0;width:16px;height:16px;border-radius:50%;background:${on ? '#B4BCD3' : '#EEF1F7'}"></div>`);
+    if (on) pop($('div', 'abs disc', cell, `left:20px;top:34px;width:36px;height:36px;background:${MINT}`, ico('check', 20, '#fff', 3.2)), w[2] + .12 + i * .04, .2, null);
+  });
+  reveal(cal, t0 + .3, .3, 20);
+  pop(chip(p, 268, 576, 'share-2', '2 platforms · posted for you'), w[3], .5, 2);
+};
+B.reviews = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'Review requests | on *autopilot.*', w, 330, 104);
+  const em = $('div', 'card', p, 'left:96px;top:760px;width:340px;height:240px;padding:26px;border-radius:30px',
+    `<div class="row" style="gap:12px"><span class="disc" style="width:50px;height:50px">${ico('mail', 26, '#fff', 2.4)}</span><span style="font-weight:800;font-size:26px">Quick favor?</span></div>
+     <div style="margin-top:22px;height:14px;border-radius:7px;background:#EDF0F7"></div><div style="margin-top:12px;height:14px;width:76%;border-radius:7px;background:#EDF0F7"></div><div style="margin-top:12px;height:14px;width:58%;border-radius:7px;background:#EDF0F7"></div>`);
+  K(em, 'r', [0, -7]); slide(em, t0 + .2, -140, 40, .5);
+  const ph = $('div', 'abs', p, 'left:330px;top:640px;width:420px;height:780px;border-radius:64px;background:#fff;border:10px solid #E5E9F3;box-shadow:0 36px 90px rgba(37,64,180,.2);overflow:hidden',
+    `<div style="height:100%;background:#F7F8FC;padding:60px 22px 0">
+      <div class="row" style="gap:12px;padding-bottom:18px;border-bottom:1.5px solid #E9ECF5"><span class="disc" style="width:48px;height:48px;font-weight:900;font-size:22px;color:#fff">S</span><span style="font-weight:800;font-size:24px">Summit Plumbing</span></div></div>`);
+  exampleTag(ph, 132, 104 + 40);
+  const b1 = $('div', 'abs', ph, 'left:22px;top:180px;width:330px;padding:20px 22px;border-radius:26px 26px 26px 8px;background:#fff;border:1.5px solid #E6EAF3;font-weight:600;font-size:24px;line-height:1.3;box-shadow:0 8px 20px rgba(37,64,180,.08)',
+    'Thanks for choosing Summit Plumbing! Mind leaving a quick review?');
+  slide(b1, t0 + .15, 0, 50, .4); sfx(t0 + .15, 'pop', 1);
+  const lnk = $('div', 'abs row', ph, `left:22px;top:390px;width:330px;height:84px;border-radius:22px;background:${GRAD135};color:#fff;font-weight:800;font-size:24px;justify-content:center;gap:10px`,
+    `${ico('star', 24, '#fff', 2.6)}Leave a review`);
+  slide(lnk, t0 + .4, 0, 40, .4);
+  slide(ph, t0 + .02, 0, 220, .55);
+  const tg = $('div', 'card row', p, 'left:610px;top:1180px;width:400px;height:130px;padding:0 26px;gap:18px;border-radius:30px',
+    `<span style="flex:1"><span style="display:block;font-weight:800;font-size:28px">Auto-send</span><span class="muted" style="display:block;font-weight:600;font-size:22px;margin-top:4px">Text + Email</span></span>
+     <span class="tr" style="position:relative;width:100px;height:58px;border-radius:29px;background:#D9DEEA"><span class="tg" style="position:absolute;inset:0;border-radius:29px;background:${GRAD}"></span><span class="kn" style="position:absolute;left:5px;top:5px;width:48px;height:48px;border-radius:50%;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,.18)"></span></span>`);
+  slide(tg, t0 + .3, 160, 0, .45);
+  const ta = w[3] - .02;
+  K(tg.querySelector('.tg'), 'o', [ta, 0], [ta + .18, 1]); K(tg.querySelector('.kn'), 'x', [ta, 0], [ta + .2, 42, 'out']); sfx(ta, 'tick', 6);
+  for (let i = 0; i < 5; i++) pop($('div', 'abs', p, `left:${330 + i * 84}px;top:568px;font-size:62px;line-height:1;color:${GOLD};text-shadow:0 8px 18px rgba(245,179,1,.35)`, '★'), ta + .12 + i * .06, .2, i);
+};
+B.report = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'A *plain-English* | monthly report.', w, 330, 104);
+  const c = $('div', 'card', p, 'left:100px;top:640px;width:880px;height:780px;padding:40px 44px;overflow:hidden');
+  c.innerHTML = `<div class="row" style="gap:18px"><span class="disc" style="width:64px;height:64px">${ico('file-text', 32, '#fff', 2.3)}</span>
+      <span style="flex:1"><span style="display:block;font-weight:800;font-size:36px">Your Monthly Report</span><span class="muted" style="font-weight:600;font-size:24px">October</span></span></div>`;
+  exampleTag(c, 690, 44);
+  ['Calls', 'Leads', 'Google rankings'].forEach((name, i) => {
+    const r = $('div', 'abs row', c, `left:44px;right:44px;top:${160 + i * 132}px;height:112px;border-bottom:1.5px solid #EEF1F7;gap:20px`,
+      `<span style="width:280px;font-weight:800;font-size:32px">${name}</span>
+       <svg width="360" height="80" viewBox="0 0 360 80"><path d="${['M4 66 L60 58 L110 62 L170 42 L230 46 L290 24 L356 12', 'M4 70 L70 60 L120 64 L180 48 L240 36 L300 30 L356 14', 'M4 62 L60 64 L120 50 L180 44 L240 30 L300 26 L356 10'][i]}" fill="none" stroke="url(#gh)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+       <span class="ok" style="margin-left:auto">${ico('trending-up', 40, MINT, 2.8)}</span>`);
+    reveal(r, t0 + .12 + i * .08, .3, 18);
+    drawStroke(r.querySelector('path'), t0 + .25 + i * .12, .7);
+    pop(r.querySelector('.ok'), t0 + .85 + i * .12, .3, null);
+  });
+  const box = $('div', 'abs', c, `left:44px;right:44px;top:570px;height:150px;border-radius:26px;background:linear-gradient(120deg,#EEF2FF,#F6EEFF);padding:28px 32px;font-weight:700;font-size:33px;line-height:1.3;color:${INK}`,
+    `<span style="display:block;font-weight:800;font-size:20px;letter-spacing:.12em;color:#7C3AED">IN PLAIN ENGLISH</span><span class="tx"></span>`);
+  reveal(box, w[1] - .05, .3, 16);
+  typeText(box.querySelector('.tx'), "Here's exactly what your money did.", w[1] + .1, w[3] + .2);
+  const shine = $('div', 'abs', c, 'left:0;top:-200px;width:180px;height:1300px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.85),rgba(255,255,255,0));transform-origin:center');
+  K(shine, 'x', [w[3], -300], [w[3] + .45, 1100, 'lin']); K(shine, 'r', [0, 18]);
+  pop($('div', 'abs pill', p, `left:690px;top:600px;background:#E8F8F0;color:${MINT};font-size:26px;padding:12px 22px;gap:10px;box-shadow:0 12px 30px rgba(18,183,106,.22)`, `${ico('send', 24, MINT, 2.6)}Sent`), w[3] + .1, .4, 3);
+};
+B.strategy = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'Strategy calls. | A *real person,* anytime.', w, 330, 100);
+  const cal = $('div', 'card', p, 'left:100px;top:620px;width:880px;height:400px;padding:30px 40px;border-radius:36px');
+  cal.innerHTML = `<div class="row" style="gap:14px"><span class="disc" style="width:54px;height:54px">${ico('calendar', 28, '#fff', 2.3)}</span><span style="font-weight:800;font-size:32px">October</span></div>`;
+  const grid = $('div', 'abs', cal, 'left:40px;top:110px;width:800px;height:260px');
+  for (let r = 0; r < 3; r++) for (let d = 0; d < 7; d++)
+    $('div', 'abs', grid, `left:${d * 114}px;top:${r * 86}px;width:104px;height:76px;border-radius:16px;background:#F5F7FC;font-weight:700;font-size:22px;color:#A3ABC3;padding:10px 14px`, String(r * 7 + d + 6));
+  const ev = $('div', 'abs row', grid, `left:${2 * 114}px;top:86px;width:${3 * 114 - 10}px;height:76px;border-radius:16px;background:${GRAD135};color:#fff;font-weight:800;font-size:23px;padding:0 16px;gap:10px;box-shadow:0 14px 30px rgba(124,58,237,.35)`,
+    `${ico('video', 26, '#fff', 2.4)}Monthly strategy call`);
+  K(ev, 'o', [w[1] - .05, 0], [w[1] + .05, 1]); K(ev, 'y', [w[1] - .05, -160], [w[1] + .3, 0, 'back']); sfx(w[1] + .2, 'pop', 2);
+  reveal(cal, t0 + .02, .35, 30);
+  const chat = $('div', 'card', p, 'left:100px;top:1052px;width:880px;height:380px;padding:28px 36px;border-radius:36px');
+  chat.innerHTML = `<div class="row" style="gap:16px;padding-bottom:18px;border-bottom:1.5px solid #EEF1F7">
+      <span class="disc av" style="width:64px;height:64px;position:relative"></span>
+      <span style="flex:1"><span style="display:block;font-weight:800;font-size:28px">Your NEQO team</span>
+      <span class="row" style="gap:8px;font-weight:700;font-size:21px;color:${MINT}"><span style="width:12px;height:12px;border-radius:50%;background:${MINT}"></span>Online</span></span></div>`;
+  nMark(chat.querySelector('.av'), 32, 32, 30, '#fff');
+  reveal(chat, t0 + .12, .35, 30);
+  const q = $('div', 'abs', chat, `right:36px;top:136px;padding:16px 22px;border-radius:24px 24px 6px 24px;background:${INK};color:#fff;font-weight:600;font-size:25px`, 'Quick question about my site?');
+  slide(q, w[2] - .05, 40, 20, .35); sfx(w[2], 'pop', 1);
+  const dots = $('div', 'abs row', chat, 'left:36px;top:232px;padding:20px 24px;border-radius:24px 24px 24px 6px;background:#F1F3F9;gap:8px',
+    [0, 1, 2].map(() => '<span style="width:12px;height:12px;border-radius:50%;background:#A3ABC3"></span>').join(''));
+  K(dots, 'o', [w[3] - .05, 0], [w[3] + .05, 1], [w[4] + .02, 1], [w[4] + .1, 0]);
+  const rep = $('div', 'abs', chat, 'left:36px;top:232px;padding:16px 22px;border-radius:24px 24px 24px 6px;background:#fff;border:2px solid #E3E7F2;font-weight:700;font-size:26px', "Hey! I'm on it.");
+  pop(rep, w[4] + .06, .6, 3);
+  pop(chip(p, 560, 1376, 'phone', 'Reachable anytime'), w[5] - .02, .5, 5);
+};
+B.price = (p, l, t0) => {
+  const w = l.w;
+  headline(p, 'Your marketing | *team* for', w.slice(0, 4), 330, 112);
+  const tc = w[2] + .3;  // the team lands in the Ultra card
+  const glow = $('div', 'abs', p, 'left:40px;top:480px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(circle,rgba(196,181,253,.55),rgba(244,114,182,.18) 40%,rgba(255,255,255,0) 68%)');
+  K(glow, 'o', [tc, 0], [tc + .4, 1]);
+  const card = $('div', 'abs', p, `left:150px;top:640px;width:780px;height:720px;border-radius:52px;padding:4px;background:${GRAD135};box-shadow:0 40px 110px rgba(124,58,237,.28)`);
+  const ci = $('div', 'abs', card, 'inset:4px;border-radius:48px;background:#fff;overflow:hidden');
+  pop(card, tc, .6, null);
+  const ul = $('div', 'abs row', ci, `left:0;right:0;top:46px;justify-content:center`, `<span class="pill" style="background:${INK};color:#fff;font-weight:900;font-size:30px;letter-spacing:.32em;padding:14px 26px 14px 36px">ULTRA</span>`);
+  reveal(ul, tc + .1, .3, 16);
+  const ring = halo(ci, 386, 326, 214, w[4] - .02, .7, 4); K(ring, 'o', [0, .35]);
+  const price = $('div', 'abs row', ci, 'left:0;right:0;top:212px;justify-content:center;align-items:flex-end',
+    `<span style="font-weight:900;font-size:212px;line-height:1;letter-spacing:-.06em;background:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent;padding:0 .04em .04em">$999</span>
+     <span class="mo" style="font-weight:800;font-size:76px;margin:0 0 28px 6px;letter-spacing:-.03em">/mo</span>`);
+  const ts = w[4] - .03;
+  K(price, 'o', [ts, 0], [ts + .06, 1]); K(price, 's', [ts, 1.35], [ts + .4, 1, 'back']); K(price, 'b', [ts, 18], [ts + .2, 0]);
+  const mo = price.querySelector('.mo'); K(mo, 'o', [w[7] - .1, 0], [w[7] + .05, 1]); K(mo, 'x', [w[7] - .1, -30], [w[7] + .2, 0]);
+  const sh = $('div', 'abs', price, 'left:0;top:-60px;width:150px;height:420px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.9),rgba(255,255,255,0))');
+  K(sh, 'x', [w[6] - .05, -200], [w[6] + .4, 820, 'lin']); K(sh, 'r', [0, 16]); sfx(w[6], 'shimmer');
+  const flashT = ts + .02;
+  const f = $('div', 'abs', FX, 'inset:0;background:radial-gradient(circle at 50% 52%,#fff,rgba(255,255,255,.7) 30%,rgba(255,255,255,0) 70%)');
+  K(f, 'o', [flashT - .02, 0], [flashT + .03, .8, 'lin'], [flashT + .4, 0]);
+  sfx(ts, 'impact', 2); sfx(ts - 60 / 124, 'stop'); shake(ts, 9);
+  const sub = $('div', 'abs row', ci, `left:0;right:0;top:500px;justify-content:center;font-weight:700;font-size:30px;color:${SLATE};gap:14px`, `Billed monthly <span style="color:#C3CADF">·</span> Cancel anytime`);
+  reveal(sub, w[9] - .05, .3, 14);
+  const icons = $('div', 'abs row', ci, 'left:0;right:0;top:585px;justify-content:center;gap:16px');
+  TEAM.forEach(([icon], i) => pop($('div', 'disc', icons, 'width:62px;height:62px', ico(icon, 30, '#fff', 2.3)), tc + .12 + i * .05, .3, i === 0 ? 0 : null));
+};
+B.end = (p, l, t0) => {
+  const w = l.w;
+  sfx(t0 - .55, 'sweep');
+  $('div', 'abs', p, 'left:190px;top:230px;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(196,181,253,.42),rgba(255,255,255,0) 66%)');
+  const n = nMark(p, 540, 560, 150); K(n, 'o', [w[0] - .05, 0], [w[0] + .08, 1]); K(n, 's', [w[0] - .05, .5], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 14], [w[0] + .2, 0]);
+  halo(p, 540, 560, 122, w[0], .6, 6);
+  headline(p, 'NEQO Digital —', [w[0] + .02, w[1], w[1] + .12], 730, 96);
+  headline(p, 'Plans from *$299/mo.*', [w[2], w[3], w[4]], 852, 96);
+  const nc = headline(p, 'No contracts.', [w[10], w[11]], 974, 96);
+  K(nc.el, 's', [w[10] - .06, 1.25], [w[10] + .3, 1, 'back']); sfx(w[10], 'thump');
+  const tu = w[11] + .3;
+  const pill = $('div', 'abs row', p, `left:0;right:0;top:1150px;justify-content:center`);
+  const pi = $('div', 'row', pill, `padding:4px;border-radius:999px;background:${GRAD135};box-shadow:0 20px 50px rgba(124,58,237,.25)`,
+    `<span class="row" style="background:#fff;border-radius:999px;padding:20px 44px;gap:16px;font-weight:800;font-size:54px;letter-spacing:-.02em">${ico('lock', 36, MINT, 2.6)}<span class="url"></span><span style="width:4px;height:52px;background:#7C3AED;margin-left:-8px"></span></span>`);
+  pop(pi, tu - .12, .6, 4);
+  typeText(pi.querySelector('.url'), 'neqodigital.com', tu, tu + .7);
+};
+
+// ---------------------------------------------------------------- build
+window.build = async () => {
+  await Promise.all([500, 600, 700, 800, 900].map((w) => document.fonts.load(`${w} 60px I`)));
+  buildBG();
+  const L = TL.lines, st = L.map((l, i) => (i ? l.t0 - .1 : 0));
+  L.forEach((l, i) => { S[l.id] = st[i]; });
+  const KIN = {meet: 'bloom', website: 'wipe', seo: 'push', social: 'wipe', reviews: 'push', report: 'wipe', strategy: 'push', price: 'bloom', end: 'bloom'};
+  L.forEach((l, i) => { const t1 = i + 1 < L.length ? st[i + 1] : TL.total; B[l.id](scene(st[i], t1, KIN[l.id]), l, st[i], t1); });
+  buildTeam(S);
+  await Promise.all([...document.images].map((im) => (im.complete ? 0 : new Promise((r) => (im.onload = im.onerror = r)))));
+  fitAndGrade(); seek(0);
+  return SFX.sort((a, b) => a[0] - b[0]);
+};
+window.seek = seek;
+</script></body></html>
