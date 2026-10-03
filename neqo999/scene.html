@@ -13,13 +13,13 @@ html,body{width:1080px;height:1920px;overflow:hidden;background:#F8F9FD;font-fam
 #bg,#cam,#over,#fx,#grain,.scene,.inner{position:absolute;inset:0}
 .abs{position:absolute}
 .row{display:flex;align-items:center}
-.hl{position:absolute;left:60px;right:60px;text-align:center;font-weight:900;line-height:1.04;letter-spacing:-.042em;color:#0B1033;white-space:nowrap}
+.hl{position:absolute;left:84px;right:84px;text-align:center;font-weight:900;line-height:1.04;letter-spacing:-.042em;color:#0B1033;white-space:nowrap}
 .w{display:inline-block;padding:.03em .03em .1em;margin:0 -.03em}
 .w.g{background-image:linear-gradient(90deg,#2563EB 0%,#7C3AED 38%,#DB2777 70%,#F97316 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 .card{position:absolute;background:rgba(255,255,255,.95);border:1.5px solid rgba(225,230,243,.95);border-radius:40px;box-shadow:0 34px 90px rgba(37,64,180,.13),0 6px 18px rgba(11,16,51,.05)}
 .pill{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:12px 26px;font-weight:700;white-space:nowrap}
 .chip{position:absolute;display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:14px 26px;font-weight:700;font-size:30px;white-space:nowrap;background:#fff;color:#0B1033;border:1.5px solid #E3E7F2;box-shadow:0 18px 44px rgba(37,64,180,.14)}
-.tag{position:absolute;font-weight:700;font-size:19px;letter-spacing:.12em;color:#8A92AD;background:#F1F3F9;border-radius:999px;padding:7px 14px}
+.tag{position:absolute;z-index:3;font-weight:800;font-size:23px;letter-spacing:.1em;color:#4B5373;background:#E6E9F2;border:1.5px solid #C9CFE0;border-radius:999px;padding:6px 14px}
 .disc{display:flex;align-items:center;justify-content:center;border-radius:50%;flex:none;background:linear-gradient(135deg,#2563EB 0%,#7C3AED 50%,#DB2777 100%)}
 .muted{color:#5B6382}
 </style></head>
@@ -140,12 +140,12 @@ function wipe(t) {  // prismatic light-band sweeping across the cut
 function scene(t0, t1, kin) {
   const sc = $('div', 'scene', CAM), inner = $('div', 'inner', sc), first = t0 <= .001, last = t1 >= TL.total - .001;
   if (!first) {
-    if (kin === 'wipe') { wipe(t0); K(sc, 'o', [t0 - .07, 0], [t0 + .02, 1, 'lin']); K(sc, 'x', [t0 - .07, 50], [t0 + .3, 0]); }
+    if (kin === 'wipe') { wipe(t0); K(sc, 'o', [t0 - .03, 0], [t0 + .08, 1, 'lin']); K(sc, 'x', [t0 - .07, 50], [t0 + .3, 0]); }
     else if (kin === 'bloom') { bloom(t0); K(sc, 'o', [t0 - .03, 0], [t0 + .1, 1]); K(sc, 's', [t0 - .03, 1.06], [t0 + .35, 1]); }
-    else { K(sc, 'o', [t0 - .05, 0], [t0 + .14, 1]); K(sc, 's', [t0 - .05, .965], [t0 + .3, 1]); K(sc, 'b', [t0 - .05, 10], [t0 + .2, 0]); }
+    else { K(sc, 'o', [t0 - .03, 0], [t0 + .12, 1]); K(sc, 's', [t0 - .05, .965], [t0 + .3, 1]); K(sc, 'b', [t0 - .05, 10], [t0 + .2, 0]); }
     sfx(t0, 'whoosh');
   }
-  if (!last) { K(sc, 'o', [t1 - .1, 1], [t1 + .08, 0, 'inn']); K(sc, 's', [t1 - .1, 1], [t1 + .08, 1.035, 'inn']); K(sc, 'b', [t1 - .1, 0], [t1 + .08, 8, 'inn']); }
+  if (!last) { K(sc, 'o', [t1 - .1, 1], [t1 + .05, 0, 'io']); K(sc, 's', [t1 - .1, 1], [t1 + .05, 1.035, 'io']); K(sc, 'b', [t1 - .1, 0], [t1 + .05, 8, 'io']); }  // short crossfade: no blank frame, no readable double exposure
   K(inner, 's', [t0, 1], [t1, 1.025, 'lin']);
   return inner;
 }
@@ -167,12 +167,12 @@ function halo(p, cx, cy, r, t0, d = .6, sw = 6) {
 const TEAM = [['app-window', 'Website'], ['map-pin', 'Local SEO'], ['message-circle-heart', 'Social'], ['star', 'Reviews'],
   ['chart-column-increasing', 'Reports'], ['headset', 'Strategy &amp; Support']];
 const SLOT = (i) => [105 + (i % 2) * 450, 790 + Math.floor(i / 2) * 210];  // 420x180 board slots
-const BAR = (i) => [298 + i * 84 + 32, 250];                               // team-bar chip centres (64px chips)
+const BAR = (i) => [298 + i * 84 + 32, 264];                               // team-bar chip centres (64px chips)
 
 function buildTeam(S) {  // S: scene start times by id
   const hook = LN.hook.w, meet = LN.meet.w, price = LN.price.w;
   const tAsm = meet[4] - .12, tBar = S.website, tFold = price[2];
-  const board = $('div', 'abs', OVER, 'inset:0'), g = S.meet - .27;  // the board glitches with the hook headline
+  const board = $('div', 'abs', OVER, 'inset:0'), g = S.meet - .14;  // the board glitches with the hook headline
   K(board, 'x', [g, 0], [g + .05, -22, 'lin'], [g + .1, 18, 'lin'], [g + .15, -10, 'lin'], [g + .2, 6, 'lin'], [g + .25, 0, 'lin']);
   K(board, 'sk', [g, 0], [g + .05, -6, 'lin'], [g + .1, 5, 'lin'], [g + .15, -3, 'lin'], [g + .25, 0, 'lin']);
   TEAM.forEach(([icon, name], i) => {
@@ -181,7 +181,7 @@ function buildTeam(S) {  // S: scene start times by id
     const slot = $('div', 'abs row', board, `left:${x}px;top:${y}px;width:420px;height:180px;border:3px dashed #C3CADF;border-radius:34px;background:rgba(255,255,255,.5);padding:0 30px;gap:22px`,
       `<span class="disc" style="width:80px;height:80px;background:#EEF1F8">${ico(icon, 38, '#A3ABC3', 2.2)}</span><span style="font-weight:700;font-size:${name.length > 12 ? 28 : 34}px;color:#9AA3BE;line-height:1.15">${name}</span>`);
     const q = $('div', 'abs row', board, `left:${x + 372}px;top:${y - 18}px;width:58px;height:58px;border-radius:50%;background:${CORAL};color:#fff;font-weight:900;font-size:36px;justify-content:center;box-shadow:0 10px 24px rgba(242,87,91,.35)`, '?');
-    pop(q, hook[3] + .05 + i * .05, .2, i);
+    pop(q, -.5, .2, null); K(q, 's', [hook[3] + i * .04, 1], [hook[3] + .12 + i * .04, 1.3], [hook[3] + .36 + i * .04, 1, 'back']);
     K(slot, 'r', [hook[4], 0], [hook[4] + .08, i % 2 ? 2.5 : -2.5, 'lin'], [hook[4] + .16, i % 2 ? -2 : 2, 'lin'], [hook[4] + .24, i % 2 ? 1 : -1, 'lin'], [hook[4] + .32, 0, 'lin']);
     K(slot, 'o', [0, 1], [tAsm + i * .06 + .2, 1], [tAsm + i * .06 + .32, 0]); K(q, 'o', [tAsm + i * .06 + .1, 1], [tAsm + i * .06 + .2, 0]);
     // filled badge flies in on "assembled."
@@ -210,10 +210,7 @@ function buildTeam(S) {  // S: scene start times by id
     const done = $('div', 'abs row', OVER, `left:${cx + 12}px;top:${cy - 40}px;width:30px;height:30px;border-radius:50%;background:${MINT};justify-content:center;border:2.5px solid #fff`, ico('check', 16, '#fff', 3.2));
     pop(done, a1 - .02, .2, null);
     // the whole team folds into the Ultra card on "team"
-    for (const el of [base, done]) {
-      K(el, 'x', [tFold, 0], [tFold + .35, 540 - cx, 'inn']); K(el, 'y', [tFold, 0], [tFold + .35, 980 - cy, 'inn']);
-      K(el, 's', [tFold + .2, 1], [tFold + .35, .3, 'inn']); K(el, 'o', [tFold + .25, 1], [tFold + .36, 0]);
-    }
+    for (const el of [base, done]) { K(el, 's', [tFold + i * .02, 1], [tFold + .26 + i * .02, .3, 'inn']); K(el, 'o', [tFold + .1 + i * .02, 1], [tFold + .26 + i * .02, 0]); }
   });
 }
 
@@ -221,8 +218,8 @@ function buildTeam(S) {  // S: scene start times by id
 const S = {};
 const B = {};
 B.hook = (p, l, t0, t1) => {
-  headline(p, 'Want your own | *marketing team?*', l.w, 330, 112);
-  const g = t1 - .27;  // glitch into the drop
+  headline(p, 'Want your own | *marketing team?*', [-.24, ...l.w.slice(1)], 330, 112);  // 'Want' visible from frame 0 (cover frame)
+  const g = t1 - .14;  // glitch into the drop
   K(p, 'x', [g, 0], [g + .05, 26, 'lin'], [g + .1, -20, 'lin'], [g + .15, 12, 'lin'], [g + .2, -6, 'lin'], [g + .25, 0, 'lin']);
   K(p, 'sk', [g, 0], [g + .05, 8, 'lin'], [g + .1, -6, 'lin'], [g + .15, 4, 'lin'], [g + .25, 0, 'lin']);
   sfx(g, 'glitch');
@@ -230,10 +227,10 @@ B.hook = (p, l, t0, t1) => {
 B.meet = (p, l, t0) => {
   const w = l.w;
   sfx(t0, 'drop'); sfx(t0, 'impact', 1); shake(t0, 10);
-  $('div', 'abs', p, 'left:240px;top:0;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,.35),rgba(167,139,250,0) 65%)');
-  const n = nMark(p, 540, 292, 118); K(n, 'o', [w[0] - .05, 0], [w[0] + .08, 1]); K(n, 's', [w[0] - .05, .45], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 16], [w[0] + .2, 0]);
-  halo(p, 540, 292, 92, w[0], .55, 5);
-  headline(p, 'Meet *Ultra.* | Your team, *assembled.*', w, 430, 100);
+  $('div', 'abs', p, 'left:240px;top:56px;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(167,139,250,.35),rgba(167,139,250,0) 65%)');
+  const n = nMark(p, 540, 348, 118); K(n, 'o', [w[0] - .05, 0], [w[0] + .08, 1]); K(n, 's', [w[0] - .05, .45], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 16], [w[0] + .2, 0]);
+  halo(p, 540, 348, 92, w[0], .55, 5);
+  headline(p, 'Meet *Ultra.* | Your team, *assembled.*', w, 474, 96);
 };
 B.website = (p, l, t0) => {
   const w = l.w;
@@ -241,11 +238,11 @@ B.website = (p, l, t0) => {
   const br = $('div', 'card', p, 'left:80px;top:640px;width:920px;height:600px;overflow:hidden');
   $('div', 'abs row', br, 'left:0;top:0;right:0;height:70px;padding:0 28px;gap:12px;border-bottom:1.5px solid #EEF1F7;background:#FAFBFE',
     `<span style="width:16px;height:16px;border-radius:50%;background:#FF6B6B"></span><span style="width:16px;height:16px;border-radius:50%;background:#FFC24B"></span><span style="width:16px;height:16px;border-radius:50%;background:#3DD68C"></span>
-     <span class="row" style="margin-left:70px;height:42px;padding:0 22px;gap:10px;border-radius:12px;background:#EEF1F8;font-weight:600;font-size:22px;color:${SLATE}">${ico('lock', 18, MINT, 2.6)}summitplumbing.com</span>`);
-  exampleTag(br, 770, 18);
+     <span class="row" style="margin-left:70px;height:42px;padding:0 22px;gap:10px;border-radius:12px;background:#EEF1F8;font-weight:600;font-size:22px;color:${SLATE}">${ico('lock', 18, MINT, 2.6)}yourbusiness</span>`);
+  exampleTag(br, 752, 17);
   const tb = w[2] - .1;
   const nav = $('div', 'abs row', br, 'left:44px;top:100px;right:44px;gap:14px',
-    `<span class="disc" style="width:48px;height:48px;border-radius:14px;background:${GRAD135}">${ico('zap', 26, '#fff', 2.4)}</span><span style="font-weight:800;font-size:30px;flex:1">Summit Plumbing</span>
+    `<span class="disc" style="width:48px;height:48px;border-radius:14px;background:${GRAD135}">${ico('zap', 26, '#fff', 2.4)}</span><span style="font-weight:800;font-size:30px;flex:1">Your Business</span>
      <span style="width:36px;height:4px;border-radius:2px;background:${INK};box-shadow:0 11px 0 ${INK},0 -11px 0 ${INK}"></span>`);
   reveal(nav, tb, .3, 24);
   const hero = $('div', 'abs', br, 'left:44px;top:190px;width:470px', `<div style="font-weight:900;font-size:60px;line-height:1.02;letter-spacing:-.04em">Fast, honest plumbing. ${gtxt('Day or night.')}</div>`);
@@ -259,21 +256,22 @@ B.website = (p, l, t0) => {
   reveal(img, tb + .18, .32, 30);
   const ph = $('div', 'abs', p, 'left:740px;top:930px;width:250px;height:510px;border-radius:44px;background:#fff;border:9px solid #E5E9F3;box-shadow:0 30px 70px rgba(37,64,180,.2);overflow:hidden',
     `<div style="height:100%;padding:44px 18px 0;background:#FBFCFF">
-       <div class="row" style="gap:8px"><span class="disc" style="width:30px;height:30px;border-radius:9px;background:${GRAD135}">${ico('zap', 17, '#fff', 2.4)}</span><span style="font-weight:800;font-size:17px">Summit</span></div>
+       <div class="row" style="gap:8px"><span class="disc" style="width:30px;height:30px;border-radius:9px;background:${GRAD135}">${ico('zap', 17, '#fff', 2.4)}</span><span style="font-weight:800;font-size:17px">Your Business</span></div>
        <div style="margin-top:18px;font-weight:900;font-size:30px;line-height:1.02;letter-spacing:-.03em">Fast, honest plumbing. ${gtxt('Day or night.')}</div>
        <div class="pill" style="margin-top:16px;background:${INK};color:#fff;font-size:16px;padding:11px 16px;gap:8px">${ico('phone', 16, '#fff', 2.4)}Call now</div>
        <div style="margin-top:14px;height:150px;border-radius:18px;background:linear-gradient(150deg,#DCE7FF,#E9DDFF 55%,#FFE1EC)"></div></div>`);
+  exampleTag(ph, 44, 438);
   slide(ph, w[1] + .05, 120, 80, .5); sfx(w[1] + .05, 'pop', 3);
   pop(chip(p, 80, 1268, 'layout-template', 'Up to 12 pages'), w[1] + .3, .5, 1);
   pop(chip(p, 80, 1356, 'mail', 'Edits? Just email us.'), w[4] - .02, .5, 4);
-  const upd = $('div', 'abs pill', br, `left:560px;top:528px;background:#E8F8F0;color:${MINT};font-size:22px;padding:9px 18px;gap:8px`, `${ico('circle-check', 20, MINT, 2.6)}Updated just now`);
+  const upd = $('div', 'abs pill', br, `left:44px;top:524px;background:#E8F8F0;color:${MINT};font-size:22px;padding:9px 18px;gap:8px`, `${ico('circle-check', 20, MINT, 2.6)}Updated just now`);
   pop(upd, w[4] + .12, .4, null);
 };
 B.seo = (p, l, t0) => {
   const w = l.w;
   headline(p, 'Local *SEO* to | climb *Google.*', w, 330, 104);
   const c = $('div', 'card', p, 'left:80px;top:640px;width:920px;height:790px;overflow:hidden');
-  exampleTag(c, 772, 34);
+  exampleTag(c, 748, 40);
   const sb = $('div', 'abs row', c, `left:36px;top:30px;width:700px;height:80px;border-radius:40px;background:#F3F5FB;border:1.5px solid #E6EAF4;padding:0 28px;gap:16px;font-weight:600;font-size:32px`,
     `${ico('search', 30, SLATE, 2.6)}<span class="q"></span><span style="width:3px;height:36px;background:#7C3AED;margin-left:-10px"></span>`);
   typeText(sb.querySelector('.q'), 'plumber near me', t0 + .05, t0 + .55);
@@ -283,10 +281,10 @@ B.seo = (p, l, t0) => {
   const mine = $('div', 'abs', map, 'left:520px;top:58px', ico('map-pin', 62, 'url(#gs)', 2.6));
   K(mine, 'y', [w[4] - .05, 0], [w[4] + .12, -22, 'out'], [w[4] + .32, 0, 'out']); K(mine, 's', [w[4] - .05, 1], [w[4] + .12, 1.15], [w[4] + .32, 1]);
   const list = $('div', 'abs', c, 'left:36px;top:362px;width:848px;height:410px'), RH = 102;
-  const row = (name, rate, i, ours) => $('div', 'abs row', list, `left:0;right:0;top:${i * RH}px;height:${RH - 12}px;padding:0 24px;gap:20px;border-radius:24px;${ours ? 'background:linear-gradient(90deg,rgba(37,99,235,.07),rgba(219,39,119,.07));border:2.5px solid #A78BFA;box-shadow:0 14px 36px rgba(124,58,237,.18)' : ''}`,
+  const row = (name, rate, i, ours) => $('div', 'abs row', list, `left:0;right:0;top:${i * RH}px;height:${RH - 12}px;padding:0 24px;gap:20px;border-radius:24px;${ours ? 'background:linear-gradient(90deg,#F1F4FF,#FCF0F6);border:2.5px solid #A78BFA;box-shadow:0 14px 36px rgba(124,58,237,.18)' : ''}`,
     `<span class="disc" style="width:58px;height:58px;border-radius:16px;background:${ours ? GRAD135 : '#E7EBF4'}">${ico('map-pin', 28, ours ? '#fff' : '#9AA3BE', 2.3)}</span>
-     <span style="flex:1"><span style="display:block;font-weight:800;font-size:30px">${name}</span><span class="row" style="gap:4px;margin-top:4px;font-weight:600;font-size:21px;color:${SLATE}">${('<span style="color:' + GOLD + ';font-size:22px">★</span>').repeat(5)}&nbsp;${rate}</span></span>`);
-  const others = [['Peak Plumbing', '4.7'], ['Metro Pipe Co.', '4.6'], ['BlueLine Plumbing', '4.5']].map(([n, r], i) => {
+     <span style="flex:1">${ours ? `<span style="display:block;font-weight:800;font-size:30px">${name}</span>` : `<span style="display:block;width:${name}px;height:24px;border-radius:12px;background:#E3E7F0;margin:6px 0 10px"></span>`}<span class="row" style="gap:4px;margin-top:4px;font-weight:600;font-size:21px;color:${SLATE}">${('<span style="color:' + GOLD + ';font-size:22px">★</span>').repeat(5)}&nbsp;${rate}</span></span>`);
+  const others = [[300, '4.7'], [250, '4.6'], [280, '4.5']].map(([n, r], i) => {
     const el = row(n, r, i, false); reveal(el, t0 + .2 + i * .05, .25, 18); return el;
   });
   const me = row('Your Business', '4.9', 3, true); reveal(me, t0 + .35, .25, 18);
@@ -294,63 +292,60 @@ B.seo = (p, l, t0) => {
   K(me, 'y', [s1, 0], [s1 + .3, -RH, 'io'], [s2, -RH], [s2 + .3, -2 * RH, 'io']);
   K(others[2], 'y', [s1, 0], [s1 + .3, RH, 'io']); K(others[1], 'y', [s2, 0], [s2 + .3, RH, 'io']);
   sfx(s1, 'tick', 3); sfx(s2, 'tick', 5);
-  const up = $('div', 'abs pill', list, `left:640px;top:${RH + 22}px;background:#E8F8F0;color:${MINT};font-size:24px;padding:8px 16px;gap:6px`, `${ico('trending-up', 22, MINT, 2.6)}Up 2`);
-  pop(up, s2 + .32, .3, 5);
   pop(chip(p, 560, 584, 'sparkles', 'Monthly local SEO'), w[1] + .05, .5, 2);
 };
 B.social = (p, l, t0) => {
   const w = l.w;
   headline(p, 'Social posts, | *handled* for you.', w, 330, 104);
-  const posts = [[105, 655, -5, 'camera', GRAD135, 'Spring tune-up special', 'linear-gradient(150deg,#C9DBFF,#E2D4FF 60%,#FFD9E8)'],
+  const posts = [[105, 655, -5, 'camera', GRAD135, 'Tune-up special', 'linear-gradient(150deg,#C9DBFF,#E2D4FF 60%,#FFD9E8)'],
                  [575, 680, 5, 'thumbs-up', 'linear-gradient(135deg,#2563EB,#06B6D4)', 'Fast fix, fair price', 'linear-gradient(150deg,#FFE2CC,#FFD4E3 55%,#E2D4FF)']];
   posts.forEach(([x, y, rot, g, gbg, cap, img], i) => {
     const c = $('div', 'card', p, `left:${x}px;top:${y}px;width:400px;height:560px;padding:22px;border-radius:34px`);
     c.innerHTML = `<div class="row" style="gap:12px"><span class="disc" style="width:52px;height:52px;border-radius:15px;background:${gbg}">${ico(g, 28, '#fff', 2.3)}</span>
-        <span style="font-weight:800;font-size:23px;flex:1">summit.plumbing</span></div>
+        <span style="font-weight:800;font-size:23px;flex:1">your.business</span></div>
       <div style="margin-top:16px;height:300px;border-radius:24px;background:${img};position:relative;overflow:hidden">
         <div style="position:absolute;left:22px;right:22px;bottom:20px;font-weight:900;font-size:36px;line-height:1.05;letter-spacing:-.03em;color:#0B1033">${cap}</div></div>
       <div class="row" style="margin-top:20px;gap:20px">${ico('heart', 32, '#F43F5E', 2.4)}${ico('message-circle', 32, SLATE, 2.2)}${ico('send', 30, SLATE, 2.2)}</div>`;
-    exampleTag(c, 262, 106);
+    exampleTag(c, 222, 106);
     K(c, 'r', [t0, rot * 3], [t0 + .55, rot, 'back']); slide(c, t0 + .02 + i * .1, (i ? 1 : -1) * 260, 80, .55);
     const sch = $('div', 'abs pill', c, `right:22px;bottom:26px;background:#F1F3F9;color:${SLATE};font-size:20px;padding:8px 14px`, 'Scheduled');
     K(sch, 'o', [w[2] + .02 + i * .1, 1], [w[2] + .12 + i * .1, 0]);
     pop($('div', 'abs pill', c, `right:22px;bottom:26px;background:#E8F8F0;color:${MINT};font-size:20px;padding:8px 14px;gap:6px`, `${ico('check', 18, MINT, 3)}Posted`), w[2] + .06 + i * .1, .4, null);
-    pop($('div', 'abs disc', p, `left:${x - 26}px;top:${y - 26}px;width:96px;height:96px;box-shadow:0 14px 34px rgba(124,58,237,.4);border:5px solid #fff`, ico('check', 50, '#fff', 3)), w[2] + i * .1, .3, 4 + i);
+    pop($('div', 'abs disc', p, `left:${x + 400 - 62}px;top:${y - 34}px;width:96px;height:96px;box-shadow:0 14px 34px rgba(124,58,237,.4);border:5px solid #fff`, ico('check', 50, '#fff', 3)), w[2] + i * .1, .3, 4 + i);
   });
-  const cal = $('div', 'card row', p, 'left:140px;top:1282px;width:800px;height:130px;padding:0 34px;justify-content:space-between;border-radius:32px');
-  'MTWTFSS'.split('').forEach((d, i) => {
-    const on = [0, 2, 4].includes(i);
-    const cell = $('div', '', cal, 'width:76px;text-align:center;position:relative', `<div style="font-weight:700;font-size:24px;color:${SLATE}">${d}</div><div style="margin:12px auto 0;width:16px;height:16px;border-radius:50%;background:${on ? '#B4BCD3' : '#EEF1F7'}"></div>`);
-    if (on) pop($('div', 'abs disc', cell, `left:20px;top:34px;width:36px;height:36px;background:${MINT}`, ico('check', 20, '#fff', 3.2)), w[2] + .12 + i * .04, .2, null);
+  const plat = $('div', 'card row', p, 'left:170px;top:1284px;width:740px;height:130px;padding:0 34px;gap:22px;border-radius:32px',
+    `<span style="flex:1"><span style="display:block;font-weight:800;font-size:32px">2 platforms</span><span class="muted" style="display:block;font-weight:600;font-size:24px;margin-top:2px">posted for you</span></span>`);
+  [['camera', GRAD135], ['thumbs-up', 'linear-gradient(135deg,#2563EB,#06B6D4)']].forEach(([g, bg], i) => {
+    const d = $('div', 'disc', plat, `width:74px;height:74px;border-radius:22px;background:${bg};position:relative`, ico(g, 36, '#fff', 2.3));
+    pop($('div', 'abs disc', d, `right:-12px;top:-12px;width:36px;height:36px;background:${MINT};border:3px solid #fff`, ico('check', 18, '#fff', 3.2)), w[2] + .1 + i * .08, .2, null);
   });
-  reveal(cal, t0 + .3, .3, 20);
-  pop(chip(p, 268, 576, 'share-2', '2 platforms · posted for you'), w[3], .5, 2);
+  reveal(plat, t0 + .3, .3, 20);
 };
 B.reviews = (p, l, t0) => {
   const w = l.w;
   headline(p, 'Review requests | on *autopilot.*', w, 330, 104);
-  const em = $('div', 'card', p, 'left:96px;top:760px;width:340px;height:240px;padding:26px;border-radius:30px',
+  const em = $('div', 'card', p, 'left:52px;top:770px;width:300px;height:230px;padding:24px;border-radius:30px',
     `<div class="row" style="gap:12px"><span class="disc" style="width:50px;height:50px">${ico('mail', 26, '#fff', 2.4)}</span><span style="font-weight:800;font-size:26px">Quick favor?</span></div>
      <div style="margin-top:22px;height:14px;border-radius:7px;background:#EDF0F7"></div><div style="margin-top:12px;height:14px;width:76%;border-radius:7px;background:#EDF0F7"></div><div style="margin-top:12px;height:14px;width:58%;border-radius:7px;background:#EDF0F7"></div>`);
   K(em, 'r', [0, -7]); slide(em, t0 + .2, -140, 40, .5);
   const ph = $('div', 'abs', p, 'left:330px;top:640px;width:420px;height:780px;border-radius:64px;background:#fff;border:10px solid #E5E9F3;box-shadow:0 36px 90px rgba(37,64,180,.2);overflow:hidden',
     `<div style="height:100%;background:#F7F8FC;padding:60px 22px 0">
-      <div class="row" style="gap:12px;padding-bottom:18px;border-bottom:1.5px solid #E9ECF5"><span class="disc" style="width:48px;height:48px;font-weight:900;font-size:22px;color:#fff">S</span><span style="font-weight:800;font-size:24px">Summit Plumbing</span></div></div>`);
+      <div class="row" style="gap:12px;padding-bottom:18px;border-bottom:1.5px solid #E9ECF5"><span class="disc" style="width:48px;height:48px;font-weight:900;font-size:22px;color:#fff">Y</span><span style="font-weight:800;font-size:24px">Your Business</span></div></div>`);
   exampleTag(ph, 132, 104 + 40);
   const b1 = $('div', 'abs', ph, 'left:22px;top:180px;width:330px;padding:20px 22px;border-radius:26px 26px 26px 8px;background:#fff;border:1.5px solid #E6EAF3;font-weight:600;font-size:24px;line-height:1.3;box-shadow:0 8px 20px rgba(37,64,180,.08)',
-    'Thanks for choosing Summit Plumbing! Mind leaving a quick review?');
+    'Thanks for choosing us! Mind leaving a quick review?');
   slide(b1, t0 + .15, 0, 50, .4); sfx(t0 + .15, 'pop', 1);
   const lnk = $('div', 'abs row', ph, `left:22px;top:390px;width:330px;height:84px;border-radius:22px;background:${GRAD135};color:#fff;font-weight:800;font-size:24px;justify-content:center;gap:10px`,
     `${ico('star', 24, '#fff', 2.6)}Leave a review`);
   slide(lnk, t0 + .4, 0, 40, .4);
   slide(ph, t0 + .02, 0, 220, .55);
-  const tg = $('div', 'card row', p, 'left:610px;top:1180px;width:400px;height:130px;padding:0 26px;gap:18px;border-radius:30px',
+  const tg = $('div', 'card row', p, 'left:340px;top:1288px;width:400px;height:130px;padding:0 26px;gap:18px;border-radius:30px',
     `<span style="flex:1"><span style="display:block;font-weight:800;font-size:28px">Auto-send</span><span class="muted" style="display:block;font-weight:600;font-size:22px;margin-top:4px">Text + Email</span></span>
      <span class="tr" style="position:relative;width:100px;height:58px;border-radius:29px;background:#D9DEEA"><span class="tg" style="position:absolute;inset:0;border-radius:29px;background:${GRAD}"></span><span class="kn" style="position:absolute;left:5px;top:5px;width:48px;height:48px;border-radius:50%;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,.18)"></span></span>`);
-  slide(tg, t0 + .3, 160, 0, .45);
+  slide(tg, t0 + .3, 0, 120, .45);
   const ta = w[3] - .02;
   K(tg.querySelector('.tg'), 'o', [ta, 0], [ta + .18, 1]); K(tg.querySelector('.kn'), 'x', [ta, 0], [ta + .2, 42, 'out']); sfx(ta, 'tick', 6);
-  for (let i = 0; i < 5; i++) pop($('div', 'abs', p, `left:${330 + i * 84}px;top:568px;font-size:62px;line-height:1;color:${GOLD};text-shadow:0 8px 18px rgba(245,179,1,.35)`, '★'), ta + .12 + i * .06, .2, i);
+  pop($('div', 'abs row', p, 'left:0;right:0;top:592px;justify-content:center', `<span class="pill" style="background:#E8F8F0;color:${MINT};font-size:28px;padding:12px 24px;gap:10px;box-shadow:0 12px 30px rgba(18,183,106,.2)">${ico('send', 24, MINT, 2.6)}Review request sent</span>`), ta + .14, .5, 4);
 };
 B.report = (p, l, t0) => {
   const w = l.w;
@@ -388,21 +383,15 @@ B.strategy = (p, l, t0) => {
     `${ico('video', 26, '#fff', 2.4)}Monthly strategy call`);
   K(ev, 'o', [w[1] - .05, 0], [w[1] + .05, 1]); K(ev, 'y', [w[1] - .05, -160], [w[1] + .3, 0, 'back']); sfx(w[1] + .2, 'pop', 2);
   reveal(cal, t0 + .02, .35, 30);
-  const chat = $('div', 'card', p, 'left:100px;top:1052px;width:880px;height:380px;padding:28px 36px;border-radius:36px');
-  chat.innerHTML = `<div class="row" style="gap:16px;padding-bottom:18px;border-bottom:1.5px solid #EEF1F7">
-      <span class="disc av" style="width:64px;height:64px;position:relative"></span>
-      <span style="flex:1"><span style="display:block;font-weight:800;font-size:28px">Your NEQO team</span>
-      <span class="row" style="gap:8px;font-weight:700;font-size:21px;color:${MINT}"><span style="width:12px;height:12px;border-radius:50%;background:${MINT}"></span>Online</span></span></div>`;
-  nMark(chat.querySelector('.av'), 32, 32, 30, '#fff');
-  reveal(chat, t0 + .12, .35, 30);
-  const q = $('div', 'abs', chat, `right:36px;top:136px;padding:16px 22px;border-radius:24px 24px 6px 24px;background:${INK};color:#fff;font-weight:600;font-size:25px`, 'Quick question about my site?');
-  slide(q, w[2] - .05, 40, 20, .35); sfx(w[2], 'pop', 1);
-  const dots = $('div', 'abs row', chat, 'left:36px;top:232px;padding:20px 24px;border-radius:24px 24px 24px 6px;background:#F1F3F9;gap:8px',
-    [0, 1, 2].map(() => '<span style="width:12px;height:12px;border-radius:50%;background:#A3ABC3"></span>').join(''));
-  K(dots, 'o', [w[3] - .05, 0], [w[3] + .05, 1], [w[4] + .02, 1], [w[4] + .1, 0]);
-  const rep = $('div', 'abs', chat, 'left:36px;top:232px;padding:16px 22px;border-radius:24px 24px 24px 6px;background:#fff;border:2px solid #E3E7F2;font-weight:700;font-size:26px', "Hey! I'm on it.");
-  pop(rep, w[4] + .06, .6, 3);
-  pop(chip(p, 560, 1376, 'phone', 'Reachable anytime'), w[5] - .02, .5, 5);
+  const ct = $('div', 'card row', p, 'left:100px;top:1060px;width:880px;height:300px;padding:0 44px;gap:30px;border-radius:36px');
+  const av = $('div', 'disc', ct, 'width:120px;height:120px;position:relative;box-shadow:0 16px 36px rgba(124,58,237,.35)');
+  nMark(av, 60, 60, 56, '#fff');
+  const info = $('div', '', ct, 'flex:1', `<span style="display:block;font-weight:800;font-size:38px">Your NEQO team</span>
+      <span class="muted" style="display:block;font-weight:600;font-size:27px;margin-top:6px">Strategy &amp; Support</span>
+      <span class="pill" style="margin-top:20px;background:#F1F3F9;font-size:25px;padding:12px 22px;gap:10px">${ico('mail', 24, INK, 2.4)}Email us</span>`);
+  reveal(ct, t0 + .12, .35, 30);
+  pop(av, w[3] - .04, .5, 3); reveal(info, w[4] - .06, .3, 20);
+  pop(chip(p, 540, 1320, 'user-round', 'Reachable anytime'), w[5] - .02, .5, 5);
 };
 B.price = (p, l, t0) => {
   const w = l.w;
@@ -415,21 +404,20 @@ B.price = (p, l, t0) => {
   pop(card, tc, .6, null);
   const ul = $('div', 'abs row', ci, `left:0;right:0;top:46px;justify-content:center`, `<span class="pill" style="background:${INK};color:#fff;font-weight:900;font-size:30px;letter-spacing:.32em;padding:14px 26px 14px 36px">ULTRA</span>`);
   reveal(ul, tc + .1, .3, 16);
-  const ring = halo(ci, 386, 326, 214, w[4] - .02, .7, 4); K(ring, 'o', [0, .35]);
   const price = $('div', 'abs row', ci, 'left:0;right:0;top:212px;justify-content:center;align-items:flex-end',
     `<span style="font-weight:900;font-size:212px;line-height:1;letter-spacing:-.06em;background:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent;padding:0 .04em .04em">$999</span>
      <span class="mo" style="font-weight:800;font-size:76px;margin:0 0 28px 6px;letter-spacing:-.03em">/mo</span>`);
   const ts = w[4] - .03;
   K(price, 'o', [ts, 0], [ts + .06, 1]); K(price, 's', [ts, 1.35], [ts + .4, 1, 'back']); K(price, 'b', [ts, 18], [ts + .2, 0]);
-  const mo = price.querySelector('.mo'); K(mo, 'o', [w[7] - .1, 0], [w[7] + .05, 1]); K(mo, 'x', [w[7] - .1, -30], [w[7] + .2, 0]);
+  const mo = price.querySelector('.mo'); K(mo, 'o', [w[8] - .08, 0], [w[8] + .07, 1]); K(mo, 'x', [w[8] - .08, -30], [w[8] + .22, 0]);  // lands on 'a month'
   const sh = $('div', 'abs', price, 'left:0;top:-60px;width:150px;height:420px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.9),rgba(255,255,255,0))');
   K(sh, 'x', [w[6] - .05, -200], [w[6] + .4, 820, 'lin']); K(sh, 'r', [0, 16]); sfx(w[6], 'shimmer');
   const flashT = ts + .02;
   const f = $('div', 'abs', FX, 'inset:0;background:radial-gradient(circle at 50% 52%,#fff,rgba(255,255,255,.7) 30%,rgba(255,255,255,0) 70%)');
   K(f, 'o', [flashT - .02, 0], [flashT + .03, .8, 'lin'], [flashT + .4, 0]);
   sfx(ts, 'impact', 2); sfx(ts - 60 / 124, 'stop'); shake(ts, 9);
-  const sub = $('div', 'abs row', ci, `left:0;right:0;top:500px;justify-content:center;font-weight:700;font-size:30px;color:${SLATE};gap:14px`, `Billed monthly <span style="color:#C3CADF">·</span> Cancel anytime`);
-  reveal(sub, w[9] - .05, .3, 14);
+  const sub = $('div', 'abs row', ci, `left:0;right:0;top:500px;justify-content:center;font-weight:800;font-size:40px;color:#2B3255;gap:14px`, `Billed monthly <span style="color:#A9B1C9">·</span> Cancel anytime`);
+  reveal(sub, w[6] + .05, .3, 14);
   const icons = $('div', 'abs row', ci, 'left:0;right:0;top:585px;justify-content:center;gap:16px');
   TEAM.forEach(([icon], i) => pop($('div', 'disc', icons, 'width:62px;height:62px', ico(icon, 30, '#fff', 2.3)), tc + .12 + i * .05, .3, i === 0 ? 0 : null));
 };
@@ -446,9 +434,11 @@ B.end = (p, l, t0) => {
   const tu = w[11] + .3;
   const pill = $('div', 'abs row', p, `left:0;right:0;top:1150px;justify-content:center`);
   const pi = $('div', 'row', pill, `padding:4px;border-radius:999px;background:${GRAD135};box-shadow:0 20px 50px rgba(124,58,237,.25)`,
-    `<span class="row" style="background:#fff;border-radius:999px;padding:20px 44px;gap:16px;font-weight:800;font-size:54px;letter-spacing:-.02em">${ico('lock', 36, MINT, 2.6)}<span class="url"></span><span style="width:4px;height:52px;background:#7C3AED;margin-left:-8px"></span></span>`);
+    `<span class="row" style="background:#fff;border-radius:999px;padding:20px 44px;gap:16px;font-weight:800;font-size:54px;letter-spacing:-.02em">${ico('lock', 36, MINT, 2.6)}<span class="url"></span><span class="caret" style="width:4px;height:52px;background:#7C3AED;margin-left:-8px"></span></span>`);
   pop(pi, tu - .12, .6, 4);
   typeText(pi.querySelector('.url'), 'neqodigital.com', tu, tu + .7);
+  K(pi.querySelector('.caret'), 'o', [tu + .85, 1], [tu + 1.05, 0]);  // caret leaves once typed
+  sfx(l.t1 + .12, 'outro');  // music resolves on the next beat (make_reel.py music_post)
 };
 
 // ---------------------------------------------------------------- build

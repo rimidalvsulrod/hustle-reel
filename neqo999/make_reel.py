@@ -40,20 +40,48 @@ Pronunciation: "Neeko" is pronounced NEE-koh. "SEO" is spelled out: S-E-O.
 base.BPM, base.STAB = 124, "pluck"
 base.PROG = [(55.0, (220.0, 277.18, 329.63, 415.30)), (46.25, (185.0, 220.0, 277.18, 329.63)),
              (73.42, (185.0, 220.0, 277.18, 329.63)), (41.20, (220.0, 246.94, 277.18, 329.63))]
-base.CRF = 19
+base.CRF, base.MUSIC_GAIN = 16, 0.5  # low CRF: the light gradients band at higher values
+base.SFX_GAIN = {"drop": .6, "sweep": .5, "shimmer": .6, "impact": .8, "thump": .8, "glitch": .8}
+base.X264 = "ref=4:aq-mode=3"  # keeps bits in the flat pastel gradients
+base.DUCK = dict(threshold=.06, ratio=3, attack=10, release=420)
+base.SFX_DUCK = dict(threshold=.08, ratio=2.5, attack=5, release=250)
+
+
+def outro_chord(n, sr):
+    """Sustained A-major-9 button: soft-attack pad chord + sub root + a felt kick, ringing out."""
+    np = base.np
+    t = np.arange(n) / sr
+    env = np.minimum(1, t / .012) * np.exp(-1.25 * t)
+    chord = sum(np.sin(2 * np.pi * f * t) + .25 * np.sin(4 * np.pi * f * t) + .08 * np.sin(6 * np.pi * f * t)
+                for f in (220.0, 277.18, 329.63, 415.30, 493.88)) / 5
+    sub = np.sin(2 * np.pi * 55 * t) * np.exp(-1.6 * t)
+    kick = np.sin(2 * np.pi * (48 * t + 5 * (1 - np.exp(-30 * t)))) * np.exp(-10 * t)
+    return base.bq(chord, "lowpass", 3200) * env * .55 + sub * .45 + kick * .7
 
 
 def music_post(music, events):
-    """One-beat dropouts ('stop' cues from the page) so the price slam lands on near-silence."""
-    beat, sr = 60 / base.BPM, base.SR
-    g = base.np.ones(len(music))
+    """One-beat dropouts ('stop' cues from the page) so the price slam lands on near-silence;
+    an 'outro' cue stops the groove on the next beat and lets a final chord ring out."""
+    np, beat, sr = base.np, 60 / base.BPM, base.SR
+    g, tail = np.ones(len(music)), np.zeros(len(music))
+    drop = next(t for t, k, _ in events if k == "drop")
     for t, kind, _ in events:
+        ramp = int(.02 * sr)
         if kind == "stop":
             a, b = int(t * sr), min(len(music), int((t + beat) * sr))
-            ramp = int(.02 * sr)
             g[a:b] = 0.12
-            g[max(0, a - ramp):a] = base.np.linspace(1, .12, a - max(0, a - ramp))
-    return music * g
+            g[max(0, a - ramp):a] = np.linspace(1, .12, a - max(0, a - ramp))
+            g[max(a, b - ramp):b] = np.linspace(.12, 1, b - max(a, b - ramp))
+        elif kind == "outro":
+            a = int((drop + np.ceil((t - drop) / beat) * beat) * sr)
+            if a < len(music):
+                g[a:] = 0
+                g[a - 3 * ramp:a] *= np.linspace(1, 0, 3 * ramp)
+                ch = outro_chord(len(music) - a, sr) * np.abs(music).max()
+                fade = min(len(ch), int(.4 * sr))
+                ch[-fade:] *= np.linspace(1, 0, fade)
+                tail[a:] = ch
+    return music * g + tail
 
 
 base.MUSIC_POST = music_post

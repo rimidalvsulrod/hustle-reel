@@ -26,6 +26,10 @@ RENDER = os.path.join(HERE, "render.cjs")
 BPM, STAB = 124, "saw"
 CRF, MUSIC_GAIN = 18, 0.42  # final x264 quality; music level before ducking
 MUSIC_POST = None  # optional fn(music, events) -> music, e.g. one-beat dropouts
+SFX_GAIN = {}  # per-kind SFX level multipliers, e.g. {"drop": .6}
+DUCK = dict(threshold=.035, ratio=5, attack=8, release=260)  # music sidechain under the VO
+SFX_DUCK = None  # optional sidechain params to also duck SFX under the VO
+X264 = "ref=4"  # extra x264 params
 PROG = [(55.0, (220.0, 261.63, 329.63)), (43.65, (174.61, 220.0, 261.63)),
         (65.41, (196.0, 261.63, 329.63)), (49.0, (196.0, 246.94, 293.66))]
 
@@ -326,8 +330,9 @@ def synth_music(total, drop):
 
 def synth_sfx(total, events):
     rng = np.random.default_rng(9)
-    out, add = placer(int((total + 1) * SR))
+    out, add0 = placer(int((total + 1) * SR))
     for t, kind, p in events:
+        add = lambda x, at, g, _k=kind: add0(x, at, g * SFX_GAIN.get(_k, 1))
         p = p or 0
         if kind == "whoosh":
             d = .42; tt = T(d)
@@ -343,7 +348,7 @@ def synth_sfx(total, events):
             add(bq(rng.standard_normal(len(tt)), "highpass", 1200) * r * .5 + np.sin(2 * np.pi * (180 * tt + 650 * tt ** 2 / d)) * r * .2, t - d, .5)
         elif kind == "sweep":
             d = .7; tt = T(d)
-            add(bq(rng.standard_normal(len(tt)), "highpass", 3000) * (tt / d) ** 2, t, .3)
+            add(bq(bq(rng.standard_normal(len(tt)), "highpass", 3000), "lowpass", 9000) * (tt / d) ** 2, t, .3)
         elif kind == "pop":
             d = .09; tt = T(d)
             add(np.sin(2 * np.pi * ((650 + 90 * p) * tt + 2600 * tt ** 2)) * np.exp(-40 * tt), t, .16)
@@ -368,6 +373,13 @@ def synth_sfx(total, events):
 
 
 # ---------------------------------------------------------------- main
+def loudness(path):
+    """Integrated loudness (LUFS) and true peak (dBTP) via ffmpeg ebur128."""
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-af", "ebur128=peak=true", "-f", "null", "-"],
+                         capture_output=True, text=True, check=True).stderr.split("Summary:")[-1]
+    return float(re.search(r"I:\s+(-?[\d.]+) LUFS", err)[1]), float(re.search(r"Peak:\s+(-?[\d.inf]+) dBFS", err)[1])
+
+
 def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
@@ -433,21 +445,39 @@ def render(total):
     drop = next(t for t, k, _ in events if k == "drop")
     music, sfx = os.path.join(BUILD, "music.wav"), os.path.join(BUILD, "sfx.wav")
     mus = synth_music(total, drop)
+    mus[:int(.015 * SR)] *= np.linspace(0, 1, int(.015 * SR))  # pre-roll is cut at t=0: fade in, no click
     write_wav(music, MUSIC_POST(mus, events) if MUSIC_POST else mus, SR)
     write_wav(sfx, synth_sfx(total, events), SR)
 
+    duck = lambda d: ":".join(f"{k}={v}" for k, v in d.items())
     fc = (f"[1:a]adelay={int(LEAD * 1000)}:all=1,apad,highpass=f=90,equalizer=f=3200:t=q:w=1.2:g=2.5,"
-          f"acompressor=threshold=0.1:ratio=3:attack=5:release=90:makeup=1.6,asplit=2[vo][sc];"
-          f"[2:a]volume={MUSIC_GAIN}[mu];[mu][sc]sidechaincompress=threshold=0.035:ratio=5:attack=8:release=260[duck];"
-          f"[vo][duck][3:a]amix=inputs=3:duration=first:normalize=0,atrim=0:{total:.3f},"
-          f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample={SR},aformat=channel_layouts=stereo[a];"
-          f"[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]")
-    run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d.jpg"),
-         "-i", vo_t, "-i", music, "-i", sfx, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-         "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high", "-r", str(FPS),
+          f"acompressor=threshold=0.1:ratio=3:attack=5:release=90:makeup=1.6,asplit={3 if SFX_DUCK else 2}[vo][sc]{'[sc2]' if SFX_DUCK else ''};"
+          f"[2:a]volume={MUSIC_GAIN}[mu];[mu][sc]sidechaincompress={duck(DUCK)}[duck];"
+          + (f"[3:a][sc2]sidechaincompress={duck(SFX_DUCK)}[fx];" if SFX_DUCK else "[3:a]anull[fx];")
+          + f"[vo][duck][fx]amix=inputs=3:duration=first:normalize=0,atrim=0:{total:.3f},aresample={SR},"
+            f"aformat=channel_layouts=stereo[a]")
+    mix = os.path.join(BUILD, "mix.wav")
+    run(["ffmpeg", "-v", "error", "-y", "-i", vo_t, "-i", vo_t, "-i", music, "-i", sfx, "-filter_complex", fc,
+         "-map", "[a]", "-c:a", "pcm_f32le", mix])
+    # master: static gain to -14 LUFS + lookahead peak limiter (~-1.5 dBTP after AAC); re-measure once and correct
+    master, gain = os.path.join(BUILD, "master.wav"), 0.0
+    for _ in range(3):
+        run(["ffmpeg", "-v", "error", "-y", "-i", mix, "-af",
+             f"volume={gain:.2f}dB,alimiter=limit={10 ** (-2.5 / 20):.4f}:attack=3:release=80:level=0:latency=1,"
+             f"afade=t=in:d=0.01", "-c:a", "pcm_f32le", master])
+        lufs, _ = loudness(master)
+        if abs(lufs + 14) < .3:
+            break
+        gain += -14 - lufs
+    run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d.jpg"), "-i", master,
+         "-filter_complex", "[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]",
+         "-map", "[v]", "-map", "1:a",
+         "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high", "-level:v", "4.1",
+         "-x264-params", X264, "-r", str(FPS),
          "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
          "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", f"{total:.3f}", OUT])
-    print("wrote", OUT, f"{os.path.getsize(OUT) / 1e6:.1f} MB")
+    lufs, tp = loudness(OUT)
+    print("wrote", OUT, f"{os.path.getsize(OUT) / 1e6:.1f} MB, {lufs:.1f} LUFS, {tp:.1f} dBTP")
 
 
 def main():
