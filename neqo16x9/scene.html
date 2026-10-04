@@ -35,7 +35,7 @@ function bez(x1, y1, x2, y2) {  // CSS cubic-bezier as an easing function
 }
 const E = {lin: x => x, out: x => 1 - (1 - x) ** 3, inn: x => x ** 3, io: x => x < .5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2,
   expo: x => x >= 1 ? 1 : 1 - 2 ** (-10 * x), back: x => 1 + 2.4 * (x - 1) ** 3 + 1.4 * (x - 1) ** 2,
-  smooth: bez(.32, .72, 0, 1), brake: bez(.2, .9, .1, 1), spring: x => x >= 1 ? 1 : 1 - Math.exp(-7 * x) * Math.cos(10.5 * x)};
+  out2: x => 1 - (1 - x) ** 2, smooth: bez(.32, .72, 0, 1), brake: bez(.2, .9, .1, 1), spring: x => x >= 1 ? 1 : 1 - Math.exp(-7 * x) * Math.cos(10.5 * x)};
 const ELS = new Map(), HOOKS = [], SFX = [], LATE = [];
 const DEF = {x: 0, y: 0, s: 1, sx: 1, sy: 1, r: 0, o: 1, b: 0, ct: 0};
 function K(el, prop, ...keys) { let s = ELS.get(el); if (!s) ELS.set(el, s = {}); (s[prop] = s[prop] || []).push(...keys); s[prop].sort((a, b) => a[0] - b[0]); }
@@ -112,7 +112,7 @@ function flight(t0, tl, P0f, A, hops = [], opt = {}) {
   let P0c = typeof P0f === 'function' ? null : P0f;
   const imp = [tl], hp = [];
   { let tt = tl; for (const h of hops) { const v = Math.sqrt(2 * G * h), du = 2 * v / G; hp.push([tt, v, du]); tt += du; imp.push(tt); } }
-  const ex = E[opt.ease || 'out'];
+  const ex = E[opt.ease || 'out2'];
   return t => {
     const a = A(t), P0 = P0c || (P0c = P0f());
     if (t < tl) {
@@ -126,7 +126,20 @@ function flight(t0, tl, P0f, A, hops = [], opt = {}) {
   };
 }
 // fly from the previous beat's anchor (at the cut) onto this beat's period; hops are trimmed so the dot rests before the next cut
-function chain(t0, tl, fromA, A, hops, tEnd, opt) { return flight(t0 + .02, tl, fromA, A, fitHops(tl, hops, tEnd), opt); }
+function chain(t0, tl, fromA, A, hops, tEnd, opt) {  // long gaps: the dot waits on its old spot, then makes a short flight (no wild arcs)
+  const tf = Math.max(t0 + .02, tl - .55), fl = flight(tf, tl, fromA, A, fitHops(tl, hops, tEnd), opt);
+  let p0 = null; return t => t < tf ? (p0 = p0 || (typeof fromA === 'function' ? fromA() : fromA)) : fl(t);
+}
+// glide to a waypoint clear of the type (wp(a) from the landing anchor), then hop onto the period
+function approach(t0, tl, fromA, A, wp, hops, tEnd, hopT = .2) {
+  let p0 = null; const th = tl - hopT, hs = fitHops(tl, hops, tEnd);
+  return t => {
+    p0 = p0 || (typeof fromA === 'function' ? fromA() : fromA);
+    const a = A(t), w = wp(a);
+    if (t < th) { const q = E.io(clamp01((t - t0) / (th - t0))); return {x: lerp(p0.x, w.x, q), y: lerp(p0.y, w.y, q), d: lerp(p0.d, a.d, q)}; }
+    return flight(th, tl, {x: w.x, y: w.y, d: a.d}, A, hs, {ease: 'lin'})(t);
+  };
+}
 const ballState = t => { let s = null; for (const [a, b, f] of BALL) if (t >= a && t < b) s = f(t); return s; };
 LATE.push(t => {
   const s = ballState(t);
@@ -136,7 +149,11 @@ LATE.push(t => {
   BALL_EL.style.width = w + 'px'; BALL_EL.style.height = h + 'px';
   BALL_EL.style.borderRadius = (s.h ? h / 2 : w / 2) + 'px';
   BALL_EL.style.background = s.col || (fieldAt(t) === OR ? OW : OR);  // on orange the dot turns off-white so it never reads as plain type
-  BALL_EL.style.transform = `translate(${s.x - w / 2}px,${s.y - h / 2}px) scale(${s.sx || 1},${s.sy || 1})`;
+  const p = ballState(t - 1 / 30), sp = p && !s.h ? Math.hypot(s.x - p.x, s.y - p.y) : 0;
+  if (sp > 36 && !s.sx) {
+    const k = 1 + Math.min(.55, (sp - 36) / 260); BALL_EL.style.transformOrigin = '50% 50%';
+    BALL_EL.style.transform = `translate(${s.x - w / 2}px,${s.y - h / 2}px) rotate(${Math.atan2(s.y - p.y, s.x - p.x)}rad) scale(${k},${1 / k})`;
+  } else { BALL_EL.style.transformOrigin = '50% 100%'; BALL_EL.style.transform = `translate(${s.x - w / 2}px,${s.y - h / 2}px) scale(${s.sx || 1},${s.sy || 1})`; }
 });
 
 // ---------------------------------------------------------------- HUD: one quiet brand label, off during the hook's first beat and on the end card
@@ -199,7 +216,7 @@ S.job = () => {
 S.ad = () => {
   const w = L.ad.w, t0 = cut('ad'), t1 = end('ad');
   const sc = scene(t0, t1, OB);
-  const el = T(sc, W('This is an') + ` <span class="w">ad${P(500)}</span>`, {x: 128, y: 600, size: 108, w: 500, col: OW, ls: '-0.02em'});
+  const el = T(sc, W('This is an') + ` <span class="w">ad${P(600)}</span>`, {x: 128, y: 600, size: 150, w: 600, col: OW, ls: '-0.025em'});
   words(el).forEach((s, i) => cutIn(s, i ? w[i] - .03 : t0));
   const A = pdA(el), tl = w[3] + .14;
   seg(t0, t1 + 5, chain(t0, tl, S.job.A, A, [16], t1));
@@ -225,7 +242,7 @@ S.made = () => {
   cutIn(ty, ti); K(ty, 'o', [-1, 0]);
   words(ty).forEach((s, i) => { s._wg = AX[i][0]; s._wd = AX[i][1]; K(s, 'wg', [ti + .06, AX[i][0]], [ti + .36, 800, 'back']); K(s, 'wd', [ti + .06, AX[i][1]], [ti + .36, 100, 'back']); });
   sfx(ti, 'type'); sfx(ti + .3, 'knock', 2);
-  seg(t0, tB, flight(t0, t0 + .55, S.ad.A, () => { const p = S.ad.A(); return {x: p.x + 120, y: 1180, d: p.d}; }, [], {ease: 'lin'}));  // the dot drops out of frame
+  seg(t0, tB, flight(t0, t0 + .32, S.ad.A, () => { const p = S.ad.A(); return {x: p.x + 120, y: 1180, d: p.d}; }, [], {ease: 'lin'}));  // the dot drops out of frame
   // b) "timing,"  a playhead sweeps a 16-step grid; the last step collapses into the dot
   const b = scene(tB, tC, OB);
   for (let i = 0; i < 16; i++) $('div', 'abs', b, `left:${128 + i * 104}px;top:150px;width:84px;height:560px;border-radius:10px;background:${OW};opacity:.07`);
@@ -258,16 +275,16 @@ S.picture = () => {
   const sc = scene(t0, t1, OW);
   const np = T(sc, W('Now picture'), {x: 128, y: 270, size: 110, w: 500, col: OB, ls: '-0.025em'});
   words(np).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0, 14));
-  const yb = T(sc, W('your business'), {x: 116, y: 630, size: 260, w: 900, d: 62, col: OB});
+  const yb = T(sc, W('your business'), {x: 116, y: 630, size: 260, w: 900, d: 62, col: OB, css: 'word-spacing:.14em'});
   words(yb).forEach((s, i) => hardIn(s, w[i + 2] - .04));
-  const ii = T(sc, `<span class="w">in</span> <span class="w">it${P(300, true)}</span>`, {x: 1792, y: 880, size: 130, w: 300, it: true, align: 'right', col: OB});
+  const ii = T(sc, `<span class="w">in</span> <span class="w">it${P(400, true)}</span>`, {x: 1792, y: 900, size: 175, w: 400, it: true, align: 'right', col: OB});
   words(ii).forEach((s, i) => hardIn(s, w[i + 4] - .04, 14));
   // the dot rolls along an orange underline under "your business", then hops onto the period of "it."
   const ul = $('div', 'abs', sc, `left:124px;top:704px;height:12px;width:10px;background:${OR}`);
-  const r0 = w[2] - .02, r1 = w[3] + .28, xs = 124, ROLLY = 704 - 16;
+  const r0 = w[2] - .02, r1 = w[3] + .28, xs = 196, ROLLY = 704 - 16;
   let xe = 0; LATE.unshift(() => { if (!xe) xe = yb.offsetLeft + yb.offsetWidth - 8; });
   const roll = t => { const q = E.smooth(clamp01((t - r0) / (r1 - r0))); return {x: lerp(xs, xe, q), y: ROLLY, d: 30}; };
-  HOOKS.push(t => { const r = roll(t); ul.style.width = Math.max(0, r.x - xs) + 'px'; ul.style.opacity = t >= r0 ? 1 : 0; });
+  HOOKS.push(t => { const r = roll(t); ul.style.width = Math.max(0, r.x - 124) + 'px'; ul.style.opacity = t >= r0 ? 1 : 0; });
   const A = pdA(ii), tl = w[5] + .02;
   const intro = flight(t0 + .02, r0, S.made.A, () => ({x: xs, y: ROLLY, d: 30}), []);
   seg(t0, t1 + 5, t => t < r0 ? intro(t) : t < r1 ? roll(t) : flight(r1, tl, roll(r1), A)(t));
@@ -289,7 +306,7 @@ S.trades = () => {
   spec.forEach((s, i) => {
     const sc = scene(cuts[i], cuts[i + 1], s.bg);
     const el = T(sc, s.html, {...s.o, w: 900, col: inkOn(s.bg)});
-    if (i === 4) { const ws = words(el); hardIn(ws[0], cuts[4]); hardIn(ws[1], w[5] - .03); }
+    if (i === 4) { const ws = words(el); hardIn(ws[0], cuts[4]); hardIn(ws[1], w[5] - .13); }
     else hardIn(el, cuts[i]);
     sfx(cuts[i], 'type');
     const A = pdA(el), tl = (i === 4 ? w[5] : w[s.word]) + .12;
@@ -303,7 +320,7 @@ S.trades = () => {
 const ART = {
   roof: (L_) => `<svg width="100%" height="100%"><polyline points="${L_ ? '520,330 680,190 840,330' : '62,262 202,132 342,262'}" fill="none" stroke="${OR}" stroke-width="22" stroke-linejoin="miter" stroke-linecap="square"/></svg>`,
   drop: (L_) => { const [cx, cy] = L_ ? [680, 250] : [202, 190]; return `<svg width="100%" height="100%"><path d="M${cx},${cy - 110} C${cx},${cy - 110} ${cx - 66},${cy - 22} ${cx - 66},${cy + 22} a66,66 0 0 0 132,0 C${cx + 66},${cy - 22} ${cx},${cy - 110} ${cx},${cy - 110} Z" fill="${OR}"/></svg>`; },
-  sun: (L_) => { const [cx, cy] = L_ ? [680, 250] : [202, 190]; return `<svg width="100%" height="100%"><circle cx="${cx}" cy="${cy}" r="78" fill="${OR}"/></svg>`; },
+  sun: (L_) => { const [cx, cy] = L_ ? [680, 250] : [202, 190]; const rays = Array.from({length: 8}, (_, i) => { const a = i * Math.PI / 4, c = Math.cos(a), s = Math.sin(a); return `<line x1="${cx + 78 * c}" y1="${cy + 78 * s}" x2="${cx + 108 * c}" y2="${cy + 108 * s}"/>`; }).join(''); return `<svg width="100%" height="100%"><g fill="none" stroke="${OR}" stroke-width="16" stroke-linecap="square"><circle cx="${cx}" cy="${cy}" r="52"/>${rays}</g></svg>`; },
 };
 function sampleAd(p, mode) {  // a generic, labelled sample ad (no business name, numbers or claims)
   const L_ = mode === 'L';
@@ -326,34 +343,34 @@ S.likethis = () => {
   // ghost-word karaoke: the whole offer is readable at once, each word lights on its VO onset
   const a = T(sc, W('NEQO makes'), {x: 128, y: 430, size: 108, w: 900, col: OW});
   const b = T(sc, `<span class="w">ads</span> <span class="w">like</span> <span class="w" style="color:${OR};font-style:italic;font-variation-settings:'wght' 800,'wdth' 100">this${P(800, true)}</span>`, {x: 128, y: 552, size: 108, w: 900, col: OW});
-  const c = T(sc, W('for local service businesses.'), {x: 132, y: 650, size: 46, w: 500, col: OW, ls: '-0.01em'});
+  const c = T(sc, W('For local service businesses.'), {x: 132, y: 650, size: 46, w: 500, col: OW, ls: '-0.01em'});
   [...words(a), ...words(b), ...words(c)].forEach((s, i) => K(s, 'o', [t0, .13], [w[i] - .04, .13], [w[i] + .06, 1, 'out']));
   const A = pdA(b), tl = w[4] + .12;
-  seg(t0, t1 + 5, chain(t0, tl, S.trades.A, A, [30, 9], t1));
+  seg(t0, t1 + 5, approach(t0, tl, S.trades.A, A, a => ({x: a.x + 70, y: 870}), [30, 9], t1, .3));
   sfx(tl, 'thock', 2);
   // the sample ad: lands as a 16:9 artboard, then springs to 9:16 and reflows
   const lab = $('div', 'abs mono', sc, `left:966px;top:214px;font-size:36px;color:${OW};white-space:nowrap`, `<span style="color:${OR}">SAMPLE AD</span> <span class="tr">/ ROOFING</span>`);
-  const fmt = $('div', 'abs mono', sc, `left:966px;top:806px;font-size:22px;color:${OW};opacity:.55;white-space:nowrap`, '1920 x 1080 LANDSCAPE');
+  const fmt = $('div', 'abs mono', sc, `left:966px;top:806px;font-size:26px;color:${OW};opacity:.7;white-space:nowrap`, '1920 x 1080 LANDSCAPE');
   const shell = $('div', 'abs', sc, `left:966px;top:280px;width:884px;height:506px;padding:10px;border-radius:30px;background:rgba(242,241,238,.06);border:1px solid rgba(242,241,238,.12)`);
   const core = $('div', 'abs', shell, `left:10px;top:10px;right:10px;bottom:10px;border-radius:20px;overflow:hidden;background:${OW}`);
   const LA = sampleAd($('div', 'abs', core, 'left:0;top:0;width:864px;height:486px'), 'L');
   const PA = sampleAd($('div', 'abs', core, 'left:0;top:0;width:405px;height:720px'), 'P');
-  const tin = t0 + .04, ts = w[4] - .06, tw = .42;
+  const tin = t0 + .04, ts = w[5] - .04, tw = .42;
   K(shell, 'o', [tin - .001, 0], [tin, 1, 'lin']); K(shell, 'y', [tin, 60], [tin + .4, 0, 'expo']);
-  K(lab, 'o', [tin + .05, 0], [tin + .15, 1]); K(fmt, 'o', [tin + .05, 0], [tin + .15, .55]);
+  K(lab, 'o', [tin + .05, 0], [tin + .15, 1]); K(fmt, 'o', [tin + .05, 0], [tin + .15, .7]);
   // swap content cleanly: landscape clears before the frame narrows, portrait arrives once it has settled
-  K(LA.box.parentNode, 'o', [ts - .08, 1], [ts, 0, 'lin']); K(PA.box.parentNode, 'o', [ts + .25, 0], [ts + .35, 1, 'lin']);
+  K(LA.box.parentNode, 'o', [ts - .06, 1], [ts, 0, 'lin']); K(PA.box.parentNode, 'o', [ts + .12, 0], [ts + .22, 1, 'lin']);
   const BL = {l: 966, t: 280, w: 884, h: 506}, BP = {l: 1240, t: 168, w: 425, h: 740};
   HOOKS.push(t => {
     const q = E.spring(clamp01((t - ts) / tw)), g = k => lerp(BL[k], BP[k], q) + 'px';
     shell.style.left = g('l'); shell.style.top = g('t'); shell.style.width = g('w'); shell.style.height = g('h');
     lab.style.left = g('l'); lab.style.top = (lerp(BL.t, BP.t, q) - 62) + 'px';
     fmt.style.left = g('l'); fmt.style.top = (lerp(BL.t + BL.h, BP.t + BP.h, q) + 20) + 'px';
-    fmt.textContent = t < ts + .25 ? '1920 x 1080 LANDSCAPE' : '1080 x 1920 STORY';
+    fmt.textContent = t < ts + .12 ? '1920 x 1080 LANDSCAPE' : '1080 x 1920 STORY';
   });
   sfx(ts, 'whoosh'); sfx(ts + .3, 'knock', 5);
   // the system adapts to the viewer's trade: select the word, retype it, swap the art
-  const TR = [[w[6] - .02, 'leak.', '/ PLUMBING', 'Leak repairs and drain service', 'drop'], [w[8] - .02, 'heatwave.', '/ HVAC', 'AC repair and tune-ups', 'sun']];
+  const TR = [[w[7] - .02, 'leak.', '/ PLUMBING', 'Leak repairs and drain service', 'drop'], [w[8] + .1, 'heatwave.', '/ HVAC', 'AC repair and tune-ups', 'sun']];
   const sel = $('div', 'abs', PA.box, `border:3px solid ${OR};border-radius:4px;opacity:0`);
   HOOKS.push(t => {
     let cur = ['storm.', '/ ROOFING', 'Roof repairs and inspections', 'roof']; for (const [tt, ...v] of TR) if (t >= tt) cur = v;
@@ -390,7 +407,7 @@ S.website = () => {
   const scroll = t => val(ELS.get(pg).y, t);
   const target = t => ({x: PX.x + pw / 2, y: PX.y + ph / 2 + scroll(t == null ? t1 : t), d: 34});
   const tl = w[2] + .12, tm = tl + .26;
-  const fl = chain(t0, tl, S.likethis.A, target, [], t1);
+  const fl = approach(t0, tl, S.likethis.A, target, a => ({x: 960, y: a.y - 40}), [], t1, .2);
   seg(t0, t1 + 5, t => {
     if (t < tl) return fl(t);
     const g = target(t), q = E.spring(clamp01((t - tl) / .32));
@@ -420,9 +437,9 @@ S.services = () => {
   cutIn(sb, t0);
   typeText(sb.querySelector('.q'), 'roofer near me', t0 + .04, t0 + .5);
   for (let i = 0; i < 4; i++) sfx(t0 + .04 + i * .12, 'type');
-  const ls = T(a, W('Local SEO.'), {x: 128, y: 930, size: 230, w: 900, col: OW});
+  const ls = T(a, W('Local') + ` <span class="w">SEO${P(900)}</span>`, {x: 128, y: 930, size: 230, w: 900, col: OW});
   words(ls).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0));
-  const PIN = fixedA(1330, 470, 46), tp = w[1] + .14;
+  const PIN = pdA(ls), tp = w[1] + .16;
   seg(t0, tB, chain(t0, tp, S.website.A, PIN, [52, 15], tB));
   sfx(tp, 'thock', 2);
   // b) Social.
@@ -430,7 +447,7 @@ S.services = () => {
   const so = T(b, `Social${P(900)}`, {x: 1800, y: 640, size: 300, w: 900, d: 125, align: 'right', col: OB});
   hardIn(so, tB); sfx(tB, 'type');
   const As = pdA(so), tls = w[2] + .14;
-  seg(tB, tC, chain(tB, tls, PIN, As, [28, 10], tC));
+  seg(tB, tC, approach(tB, tls, PIN, As, a => ({x: a.x + 110, y: a.y}), [28, 10], tC, .18));
   sfx(tls, 'knock', 2);
   // c) Paid ads.
   const c = scene(tC, t1, OW);
@@ -444,11 +461,11 @@ S.services = () => {
 const fixedA = (x, y, d) => () => ({x, y, d});
 
 S.terms = () => {
-  const w = L.terms.w, t0 = cut('terms'), tB = w[2] - .04, t1 = end('terms');
+  const w = L.terms.w, t0 = cut('terms'), tB = w[2] - .14, t1 = end('terms');
   const a = scene(t0, tB, OB);
   const one = T(a, 'One', {x: 104, y: 840, size: 560, w: 900, d: 62, col: OW});
   hardIn(one, t0); sfx(t0, 'type');
-  const sub = T(a, `subscription${P(500)}`, {x: 1010, y: 840, size: 110, w: 500, col: OW, ls: '-0.02em'});
+  const sub = T(a, `subscription${P(600)}`, {x: 950, y: 840, size: 130, w: 600, col: OW, ls: '-0.02em'});
   hardIn(sub, w[1] - .03, 14);
   const A = pdA(sub), tl = w[1] + .45;
   seg(t0, tB, chain(t0, tl, S.services.A, A, [20], tB));
@@ -496,9 +513,9 @@ S.live = () => {
   CAN.font = '900 640px Archivo'; const asc1 = CAN.measureText('1').actualBoundingBoxAscent;
   const ON1 = () => { const r = one.getBoundingClientRect(), base = n.firstChild.getBoundingClientRect().top, d = A().d; return {x: r.left + r.width * .56, y: base - asc1 - d / 2, d}; };
   const t1a = w[2] + .06, th = w[3] - .08, tl = w[3] + .14;
-  const drop = flight(t0, t1a, () => ({x: S.terms.fallX(), y: -60, d: A().d}), ON1, [], {ease: 'lin'});
-  const hop = flight(th, tl, ON1, A, fitHops(tl, [30, 9], t1));
-  seg(t0, t1 + 5, t => t < t1a ? drop(t) : t < th ? {...ON1(), ...(t < t1a + .09 ? squash(t, t1a) : {})} : hop(t));
+  const drop = approach(t1a - .5, t1a, () => ({x: ON1().x + 700, y: -80, d: A().d}), ON1, a => ({x: a.x + 320, y: a.y - 80}), [], t1, .2);
+  const hop = flight(th, tl, ON1, A, fitHops(tl, [30, 9], t1), {ease: 'io'});
+  seg(t0, t1 + 5, t => t < t1a - .5 ? null : t < t1a ? drop(t) : t < th ? {...ON1(), ...(t < t1a + .09 ? squash(t, t1a) : {})} : hop(t));
   sfx(t1a, 'knock', 3); sfx(tl, 'thock', 1);
   S.live.A = A;
 };
@@ -516,7 +533,8 @@ S.end = () => {
   for (let i = 0; i < 6; i++) sfx(w[2] + .04 + i * .1, 'type');
   // the dot glides over from "days." and drops into place as the "." of the URL, then everything holds still
   const A = pdA(url), tl = w[4] + .08, tg = tl - .2;
-  const glide = t => { const p = S.live.A(), a = A(), q = E.smooth(clamp01((t - t0) / (tg - t0))); return {x: lerp(p.x, a.x, q), y: lerp(p.y, a.y - 110, q), d: lerp(p.d, a.d * 1.4, q)}; };
+  let fin = null; LATE.unshift(() => { if (!fin) { const u = url.querySelector('.u1'), keep = u.textContent; u.textContent = 'neqodigital'; fin = A(); u.textContent = keep; } });
+  const glide = t => { const p = S.live.A(), a = fin || A(), q = E.smooth(clamp01((t - t0) / (tg - t0))); return {x: lerp(p.x, a.x, q), y: lerp(p.y, a.y - 110, q), d: lerp(p.d, a.d * 1.4, q)}; };
   const fall = flight(tg, tl, () => glide(tg), A, fitHops(tl, [14, 4], TL.total));
   seg(t0, TL.total + 1, t => t < tg ? glide(t) : fall(t));
   sfx(tl, 'knock', 2); sfx(w[5] + .25, 'outro');

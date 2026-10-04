@@ -29,6 +29,7 @@ MUSIC_POST = None  # optional fn(music, events) -> music, e.g. one-beat dropouts
 SFX_GAIN = {}  # per-kind SFX level multipliers, e.g. {"drop": .6}
 DUCK = dict(threshold=.035, ratio=5, attack=8, release=260)  # music sidechain under the VO
 SFX_DUCK = None  # optional sidechain params to also duck SFX under the VO
+VO_EXTRA = ""  # optional extra VO filters after the compressor, e.g. a de-esser
 X264 = "ref=4"  # extra x264 params
 PROG = [(55.0, (220.0, 261.63, 329.63)), (43.65, (174.61, 220.0, 261.63)),
         (65.41, (196.0, 261.63, 329.63)), (49.0, (196.0, 246.94, 293.66))]
@@ -451,7 +452,7 @@ def render(total):
 
     duck = lambda d: ":".join(f"{k}={v}" for k, v in d.items())
     fc = (f"[1:a]adelay={int(LEAD * 1000)}:all=1,apad,highpass=f=90,equalizer=f=3200:t=q:w=1.2:g=2.5,"
-          f"acompressor=threshold=0.1:ratio=3:attack=5:release=90:makeup=1.6,asplit={3 if SFX_DUCK else 2}[vo][sc]{'[sc2]' if SFX_DUCK else ''};"
+          f"acompressor=threshold=0.1:ratio=3:attack=5:release=90:makeup=1.6,{VO_EXTRA + ',' if VO_EXTRA else ''}asplit={3 if SFX_DUCK else 2}[vo][sc]{'[sc2]' if SFX_DUCK else ''};"
           f"[2:a]volume={MUSIC_GAIN}[mu];[mu][sc]sidechaincompress={duck(DUCK)}[duck];"
           + (f"[3:a][sc2]sidechaincompress={duck(SFX_DUCK)}[fx];" if SFX_DUCK else "[3:a]anull[fx];")
           + f"[vo][duck][fx]amix=inputs=3:duration=first:normalize=0,atrim=0:{total:.3f},aresample={SR},"
@@ -470,7 +471,7 @@ def render(total):
             break
         gain += -14 - lufs
     run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d." + ("png" if os.environ.get("FRAME_FMT") == "png" else "jpg")), "-i", master,
-         "-filter_complex", "[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]",
+         "-filter_complex", "[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setsar=1[v]",
          "-map", "[v]", "-map", "1:a",
          "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high", "-level:v", "4.1",
          "-x264-params", X264, "-r", str(FPS),

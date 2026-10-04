@@ -46,6 +46,7 @@ base.SFX_GAIN = {"whoosh": .5, "impact": .55}
 base.DUCK = dict(threshold=.05, ratio=2, attack=15, release=700)
 base.SFX_DUCK = dict(threshold=.1, ratio=2, attack=5, release=200)
 base.X264 = "ref=4:aq-mode=3:deblock=-1,-1"
+base.VO_EXTRA = "deesser=i=0.5:m=0.5:f=0.5:s=o"  # tame the hot S sounds of the processed read
 
 
 def pulse(total, drop):
@@ -120,7 +121,7 @@ def foley(total, events):
         elif kind == "thock":  # dull woody knock: ball landing
             tt = T(.18)
             body = np.sin(2 * np.pi * (180 + 40 * p) * tt * (1 - .3 * tt)) * np.exp(-34 * tt)
-            add(body + .4 * np.sin(2 * np.pi * 70 * tt) * np.exp(-22 * tt) + bq(rng.standard_normal(len(tt)), "lowpass", 2500) * np.exp(-90 * tt) * .5, t, .25 * (1 - .25 * min(p, 3)))
+            add(body + .4 * np.sin(2 * np.pi * 70 * tt) * np.exp(-22 * tt) + bq(rng.standard_normal(len(tt)), "lowpass", 2500) * np.exp(-90 * tt) * .5, t, .15 * (1 - .25 * min(p, 3)))
         elif kind == "knock":  # small wood tick: bounces / steps
             tt = T(.06)
             add(np.sin(2 * np.pi * (900 + 120 * p) * tt) * np.exp(-90 * tt) + bq(rng.standard_normal(len(tt)), "bandpass", [1500, 5000]) * np.exp(-160 * tt) * .5, t, .14)
@@ -142,7 +143,7 @@ base.synth_music, base.MUSIC_POST, base.synth_sfx = pulse, music_post, foley
 _orig_prepare = base.prepare
 # Word onsets verified on the energy envelope of build/vo_final.wav (whisper merges "medspas"/"nicodigital", runs early in "made").
 FIXED = {"made": {1: 3.24, 2: 3.55, 3: 4.18}, "trades": {4: 11.45, 5: 11.77}, "likethis": {4: 13.36, 5: 13.92},
-         "end": {1: 24.02, 2: 24.30, 3: 24.66, 4: 25.0, 5: 25.24}}
+         "end": {1: 24.02, 2: 24.30, 3: 24.66, 4: 25.22, 5: 25.43}}
 
 
 def refined_prepare():
