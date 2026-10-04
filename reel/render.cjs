@@ -9,14 +9,15 @@ const { chromium } = require('playwright');
   const browser = await chromium.launch({ args: ['--force-color-profile=srgb', '--font-render-hinting=none', '--hide-scrollbars'] });
   let sfx = null, done = 0;
   await Promise.all(Array.from({ length: W }, async (_, k) => {
-    const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
+    const page = await browser.newPage({ viewport: { width: +(process.env.REEL_W || 1080), height: +(process.env.REEL_H || 1920) }, deviceScaleFactor: 1 });
     page.on('pageerror', e => { console.error('page error:', e.message); process.exit(1); });
     await page.goto('file://' + path.resolve(html));
     const s = await page.evaluate(() => window.build());
     if (k === 0) sfx = s;
     for (let i = k; i < N; i += W) {  // workers interleave frames
       await page.evaluate(t => window.seek(t), i / +fps);
-      await page.screenshot({ path: path.join(out, `f_${String(i).padStart(5, '0')}.jpg`), type: 'jpeg', quality: +(process.env.JPEG_Q || 92) });
+      const png = process.env.FRAME_FMT === 'png';  // png: lossless frames (exact brand colours on flat fields)
+      await page.screenshot({ path: path.join(out, `f_${String(i).padStart(5, '0')}.${png ? 'png' : 'jpg'}`), ...(png ? { type: 'png' } : { type: 'jpeg', quality: +(process.env.JPEG_Q || 92) }) });
       if (++done % 150 === 0) console.log(`${done}/${N} frames`);
     }
   }));

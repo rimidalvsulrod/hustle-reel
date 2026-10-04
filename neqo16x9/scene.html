@@ -1,0 +1,536 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>NEQO Digital 16:9 ad</title>
+<!-- "Full Stop": NEQO Digital 16:9 brand ad. Driven by build/timeline.js (VO-synced word times).
+     render.cjs calls window.build() once, then window.seek(t) per frame. One orange ball survives every cut as punctuation. -->
+<style>
+@font-face{font-family:'Archivo';font-style:italic;font-weight:100 900;font-stretch:62% 125%;src:url(fonts/Archivo-italic.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:100 900;font-stretch:62% 125%;src:url(fonts/Archivo-normal.woff2) format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:400 800;src:url(fonts/JetBrainsMono-normal.woff2) format('woff2')}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#0E0E0D;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+.abs{position:absolute}
+.scene{position:absolute;inset:0;overflow:hidden;visibility:hidden}
+.tx{position:absolute;top:0;white-space:nowrap}
+.w{display:inline-block}
+.bl{display:inline-block;width:0;height:0;vertical-align:baseline}
+.pd{color:transparent}
+.mono{font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.08em}
+#fx,#hud{position:absolute;inset:0;pointer-events:none}
+#ball{position:absolute;left:0;top:0;border-radius:50%;transform-origin:50% 100%;will-change:transform}
+</style></head>
+<body><div id="stage"></div><div id="fx"><div id="ball"></div></div><div id="hud"></div>
+<svg width="0" height="0" style="position:absolute"><filter id="vb" x="-2%" y="-60%" width="104%" height="220%"><feGaussianBlur id="vbg" stdDeviation="0 0"/></filter></svg>
+<script src="build/timeline.js"></script>
+<script src="icons.js"></script>
+<script src="logo.js"></script>
+<script>
+const TL = window.TL, STAGE = document.getElementById('stage'), HUD = document.getElementById('hud'), FX = document.getElementById('fx'), BALL_EL = document.getElementById('ball');
+const OB = '#0E0E0D', OW = '#F2F1EE', OR = '#FF5A1F', FW = 1920;
+
+// ---------------------------------------------------------------- deterministic keyframe engine
+function bez(x1, y1, x2, y2) {  // CSS cubic-bezier as an easing function
+  return x => { if (x <= 0) return 0; if (x >= 1) return 1; let t = x;
+    for (let i = 0; i < 8; i++) { const cx = 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3 - x, d = 3 * x1 * (1 - t) ** 2 + 6 * (x2 - x1) * t * (1 - t) + 3 * (1 - x2) * t * t; if (Math.abs(cx) < 1e-6 || !d) break; t -= cx / d; }
+    return 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3; };
+}
+const E = {lin: x => x, out: x => 1 - (1 - x) ** 3, inn: x => x ** 3, io: x => x < .5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2,
+  expo: x => x >= 1 ? 1 : 1 - 2 ** (-10 * x), back: x => 1 + 2.4 * (x - 1) ** 3 + 1.4 * (x - 1) ** 2,
+  smooth: bez(.32, .72, 0, 1), brake: bez(.2, .9, .1, 1), spring: x => x >= 1 ? 1 : 1 - Math.exp(-7 * x) * Math.cos(10.5 * x)};
+const ELS = new Map(), HOOKS = [], SFX = [], LATE = [];
+const DEF = {x: 0, y: 0, s: 1, sx: 1, sy: 1, r: 0, o: 1, b: 0, ct: 0};
+function K(el, prop, ...keys) { let s = ELS.get(el); if (!s) ELS.set(el, s = {}); (s[prop] = s[prop] || []).push(...keys); s[prop].sort((a, b) => a[0] - b[0]); }
+function val(k, t) {
+  if (t <= k[0][0]) return k[0][1];
+  for (let i = 1; i < k.length; i++) if (t < k[i][0]) { const [a, va] = k[i - 1], [b, vb, e] = k[i]; return va + (vb - va) * E[e || 'smooth']((t - a) / (b - a)); }
+  return k[k.length - 1][1];
+}
+function seek(t) {
+  for (const [el, s] of ELS) {
+    const v = {...DEF}; for (const p in s) v[p] = val(s[p], t);
+    el.style.opacity = v.o;
+    el.style.transform = `translate(${v.x}px,${v.y}px) rotate(${v.r}deg) scale(${v.s * v.sx},${v.s * v.sy})`;
+    el.style.filter = v.b > .05 ? `blur(${v.b.toFixed(2)}px)` : 'none';
+    el.style.clipPath = v.ct > .01 ? `inset(${v.ct}% -30% -40% -30%)` : 'none';
+    if (s.wg || s.wd) el.style.fontVariationSettings = `"wght" ${(s.wg ? v.wg : el._wg).toFixed(1)},"wdth" ${(s.wd ? v.wd : el._wd).toFixed(1)}`;
+  }
+  for (const h of HOOKS) h(t);
+  for (const h of LATE) h(t);  // ball + HUD read the settled layout
+}
+function $(tag, cls, parent, css, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (css) e.style.cssText = css; if (html != null) e.innerHTML = html; parent.appendChild(e); return e; }
+const sfx = (t, type, p = 0) => SFX.push([+t.toFixed(3), type, p]);
+const clamp01 = x => Math.max(0, Math.min(1, x)), lerp = (a, b, q) => a + (b - a) * q;
+function rng(seed) { return () => (seed = seed * 16807 % 2147483647) / 2147483647; }
+function typeText(el, txt, t0, t1) { HOOKS.push(t => { el.textContent = txt.slice(0, Math.round(clamp01((t - t0) / (t1 - t0)) * txt.length)); }); }
+
+// ---------------------------------------------------------------- type helpers
+// T(): a text block positioned by its first baseline (x, y). Words wrapped in .w; P() is an invisible period the ball replaces.
+const BLS = [];
+function T(p, html, o) {
+  const {x, y, size, w = 900, d = 100, it = false, col = OB, align = 'left', ls = '-0.035em', lh = .9, css = ''} = o;
+  const el = $('div', 'tx', p, `${align === 'right' ? `right:${FW - x}px;text-align:right` : `left:${x}px`};font-size:${size}px;font-style:${it ? 'italic' : 'normal'};font-variation-settings:"wght" ${w},"wdth" ${d};letter-spacing:${ls};line-height:${lh};color:${col};${css}`, `<i class="bl"></i>${html}`);
+  el._wg = w; el._wd = d; BLS.push([el, y]); return el;
+}
+const P = (w = 900, it = false) => `<span class="pd" data-w="${w}" data-i="${it ? 1 : 0}"><i class="bl"></i>.</span>`;
+const W = s => s.split(' ').map(x => `<span class="w">${x}</span>`).join(' ');
+const words = el => [...el.querySelectorAll('.w')];
+function hardIn(el, t, dy = 24) { K(el, 'o', [t - .001, 0], [t, 1, 'lin']); K(el, 'y', [t, dy], [t + .22, 0, 'expo']); K(el, 'ct', [t, 40], [t + .08, 0, 'out']); }
+function cutIn(el, t) { K(el, 'o', [t - .001, 0], [t, 1, 'lin']); }
+const CAN = document.createElement('canvas').getContext('2d');
+function anchor(pd) {  // live: centre and diameter of the period's ink, in frame pixels
+  if (!pd._ink) {
+    const size = parseFloat(getComputedStyle(pd).fontSize);
+    CAN.font = `${pd.dataset.i === '1' ? 'italic ' : ''}${pd.dataset.w} ${size}px Archivo`;
+    const m = CAN.measureText('.');
+    pd._ink = {cx: (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2, cy: -(m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2, d: m.actualBoundingBoxRight + m.actualBoundingBoxLeft, w0: pd.offsetWidth};
+  }
+  const r = pd.getBoundingClientRect(), b = pd.firstChild.getBoundingClientRect(), k = pd._ink.w0 ? r.width / pd._ink.w0 : 1;
+  return {x: r.left + pd._ink.cx * k, y: b.top + pd._ink.cy * k, d: pd._ink.d * k};
+}
+const pdA = el => () => anchor(el.querySelector('.pd'));
+
+// ---------------------------------------------------------------- scenes + fields (hard cuts)
+const FIELDS = [];
+function scene(t0, t1, bg) {
+  const sc = $('div', 'scene', STAGE, `background:${bg}`);
+  FIELDS.push([t0, t1, bg]);
+  HOOKS.push(t => { sc.style.visibility = t >= t0 && t < t1 ? 'visible' : 'hidden'; });
+  return sc;
+}
+const fieldAt = t => (FIELDS.find(f => t >= f[0] && t < f[1]) || FIELDS[FIELDS.length - 1])[2];
+const inkOn = bg => bg === OB ? OW : OB;
+
+// ---------------------------------------------------------------- the ball: one orange dot, punctuation that survives every cut
+const G = 6200;  // px/s^2
+const BALL = [];
+function seg(a, b, f) { BALL.push([a, b, f]); }
+const hopDur = h => 2 * Math.sqrt(2 * h / G);
+function fitHops(tl, hops, tEnd) { const out = []; let t = tl; for (const h of hops) { if (t + hopDur(h) > tEnd - .24) break; out.push(h); t += hopDur(h); } return out; }
+function squash(t, ti) { const k = clamp01(1 - (t - ti) / .09) ** 2; return {sx: 1 + .38 * k, sy: 1 - .34 * k}; }
+// gravity arc from P0 (object or lazily-measured fn) at t0, landing on the live anchor A at tl, then decaying hops.
+// x eases out by default, so the dot arrives over its period and drops onto it instead of flying through the word.
+function flight(t0, tl, P0f, A, hops = [], opt = {}) {
+  let P0c = typeof P0f === 'function' ? null : P0f;
+  const imp = [tl], hp = [];
+  { let tt = tl; for (const h of hops) { const v = Math.sqrt(2 * G * h), du = 2 * v / G; hp.push([tt, v, du]); tt += du; imp.push(tt); } }
+  const ex = E[opt.ease || 'out'];
+  return t => {
+    const a = A(t), P0 = P0c || (P0c = P0f());
+    if (t < tl) {
+      const T0 = tl - t0, q = clamp01((t - t0) / T0), tau = t - t0, vy = (a.y - P0.y) / T0 - .5 * G * T0;
+      return {x: lerp(P0.x, a.x, ex(q)), y: P0.y + vy * tau + .5 * G * tau * tau, d: lerp(P0.d, a.d, E.out(q))};
+    }
+    let y = a.y, sq = {sx: 1, sy: 1};
+    for (const [ts, v, du] of hp) if (t >= ts && t < ts + du) { const tau = t - ts; y = a.y - (v * tau - .5 * G * tau * tau); }
+    for (const ti of imp) if (t >= ti && t < ti + .09) sq = squash(t, ti);
+    return {x: a.x, y, d: a.d, ...sq};
+  };
+}
+// fly from the previous beat's anchor (at the cut) onto this beat's period; hops are trimmed so the dot rests before the next cut
+function chain(t0, tl, fromA, A, hops, tEnd, opt) { return flight(t0 + .02, tl, fromA, A, fitHops(tl, hops, tEnd), opt); }
+const ballState = t => { let s = null; for (const [a, b, f] of BALL) if (t >= a && t < b) s = f(t); return s; };
+LATE.push(t => {
+  const s = ballState(t);
+  if (!s || s.o === 0) { BALL_EL.style.opacity = 0; return; }
+  const w = s.w || s.d, h = s.h || s.d;
+  BALL_EL.style.opacity = s.o == null ? 1 : s.o;
+  BALL_EL.style.width = w + 'px'; BALL_EL.style.height = h + 'px';
+  BALL_EL.style.borderRadius = (s.h ? h / 2 : w / 2) + 'px';
+  BALL_EL.style.background = s.col || (fieldAt(t) === OR ? OW : OR);  // on orange the dot turns off-white so it never reads as plain type
+  BALL_EL.style.transform = `translate(${s.x - w / 2}px,${s.y - h / 2}px) scale(${s.sx || 1},${s.sy || 1})`;
+});
+
+// ---------------------------------------------------------------- HUD: one quiet brand label, off during the hook's first beat and on the end card
+let DROP = 0;
+function buildHUD() {
+  const lab = $('div', 'abs mono', HUD, 'left:64px;top:46px;font-size:20px;letter-spacing:.18em', 'NEQO DIGITAL');
+  const off = cut('end');
+  LATE.push(t => { lab.style.color = inkOn(fieldAt(t)); lab.style.opacity = t >= .62 && t < off ? .62 : 0; });
+}
+
+// ---------------------------------------------------------------- beats
+const L = Object.fromEntries(TL.lines.map(l => [l.id, l]));
+const ORDER = TL.lines.map(l => l.id);
+const cut = id => L[id].t0 - .04;  // the first word lands on the cut frame
+const end = id => { const i = ORDER.indexOf(id); return i + 1 < ORDER.length ? cut(ORDER[i + 1]) : TL.total + 1; };
+const S = {};
+
+S.stopped = () => {
+  const t1 = end('stopped'), TLk = .62, SPc = 360, V0 = 2600, A0 = V0 * TLk / 2;
+  const sc = scene(0, t1, OW);
+  T(sc, 'You', {x: 128, y: 290, size: 150, w: 300, it: true, col: OB});
+  const rib = $('div', 'abs', sc, 'inset:0;clip-path:inset(332px 0 0 0)'), ribIn = $('div', 'abs', rib, 'inset:0'), copies = [];
+  for (let k = -6; k <= 3; k++) {
+    const el = T(ribIn, k === 0 ? `stopped${P(900)}` : 'stopped', {x: 120, y: 820 + k * SPc, size: 330, w: 300, d: 125, col: OB});
+    el._k = k; copies.push(el);
+  }
+  const vbg = document.getElementById('vbg');
+  HOOKS.push(t => {
+    const u = clamp01(t / TLk), off = A0 * (1 - u) ** 2, v = V0 * (1 - u), q = E.brake(clamp01((t - (TLk - .3)) / .3));
+    ribIn.style.transform = `translateY(${off}px)`;
+    const bl = v * .0042; vbg.setAttribute('stdDeviation', `0 ${bl.toFixed(2)}`); ribIn.style.filter = bl > .3 ? 'url(#vb)' : 'none';
+    const fv = `"wght" ${lerp(300, 900, q).toFixed(1)},"wdth" ${lerp(125, 100, q).toFixed(1)}`;
+    for (const c of copies) { c.style.fontVariationSettings = fv; c.style.opacity = t >= TLk && c._k !== 0 ? 0 : 1; }
+  });
+  sfx(0, 'ratchet', TLk - .02);
+  const A = () => anchor(copies.find(c => c._k === 0).querySelector('.pd')), tl = TLk + .02;
+  seg(0, t1 + 5, flight(.2, tl, () => ({x: A().x, y: -60, d: 40}), A, [50, 15], {ease: 'lin'}));
+  sfx(tl, 'thock', 0); sfx(tl + hopDur(50) + hopDur(15), 'knock', 1);
+  S.stopped.A = A;
+};
+
+S.job = () => {
+  const w = L.job.w, t0 = cut('job'), t1 = end('job');
+  const sc = scene(t0, t1, OR);
+  const el = T(sc, `<span class="w">That's</span><br><span class="w">the</span><br><span class="w">job${P(900)}</span>`, {x: 1720, y: 330, size: 250, w: 900, d: 62, align: 'right', lh: .86, col: OB});
+  words(el).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0));
+  const A = pdA(el), th = w[2] - .1, tl = w[2] + .12, hops = fitHops(tl, [26], t1);
+  let p0 = null;
+  // roll right along the old baseline while "job" is still hidden, then hop up onto its full stop from the right
+  seg(t0, t1 + 5, t => {
+    p0 = p0 || S.stopped.A(); const a = A();
+    if (t < th) { const q = E.smooth(clamp01((t - t0) / (th - t0))); return {x: lerp(p0.x, a.x + 90, q), y: p0.y, d: lerp(p0.d, a.d, q)}; }
+    return flight(th, tl, {x: a.x + 90, y: p0.y, d: a.d}, A, hops, {ease: 'lin'})(t);
+  });
+  sfx(tl, 'thock', 1); if (hops.length) sfx(tl + hopDur(26), 'knock', 2);
+  DROP = t0; sfx(t0, 'drop');
+  S.job.A = A;
+};
+
+S.ad = () => {
+  const w = L.ad.w, t0 = cut('ad'), t1 = end('ad');
+  const sc = scene(t0, t1, OB);
+  const el = T(sc, W('This is an') + ` <span class="w">ad${P(500)}</span>`, {x: 128, y: 600, size: 108, w: 500, col: OW, ls: '-0.02em'});
+  words(el).forEach((s, i) => cutIn(s, i ? w[i] - .03 : t0));
+  const A = pdA(el), tl = w[3] + .14;
+  seg(t0, t1 + 5, chain(t0, tl, S.job.A, A, [16], t1));
+  sfx(tl, 'knock', 4);
+  const svg = $('div', 'abs', sc, 'inset:0', `<svg width="1920" height="1080"><rect x="28" y="28" width="1864" height="1024" fill="none" stroke="${OR}" stroke-width="4"/></svg>`);
+  const rc = svg.querySelector('rect'), per = 2 * (1864 + 1024); rc.style.strokeDasharray = per;
+  const ts = w[3] + .02;
+  HOOKS.push(t => { rc.style.strokeDashoffset = per * (1 - E.out(clamp01((t - ts) / .3))); });
+  sfx(ts + .3, 'knock', 6);
+  sfx(t0, 'mute', t1 - t0);
+  S.ad.A = A;
+};
+
+S.made = () => {
+  const w = L.made.w, t0 = cut('made'), tB = w[3] - .04, tC = w[5] - .04, t1 = end('made');
+  // a) "Made from type,"  four mismatched axis settings snap into one voice
+  const a = scene(t0, tB, OW);
+  const mf = T(a, W('Made from'), {x: 128, y: 230, size: 96, w: 500, col: OB, ls: '-0.02em'});
+  words(mf).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0, 14));
+  const AX = [[900, 62], [100, 125], [500, 100], [900, 125], [800, 100]];
+  const ty = T(a, 'type,'.split('').map(c => `<span class="w">${c}</span>`).join(''), {x: 100, y: 900, size: 520, w: 800, d: 100, col: OB, ls: '-0.03em'});
+  const ti = w[2] - .05;
+  cutIn(ty, ti); K(ty, 'o', [-1, 0]);
+  words(ty).forEach((s, i) => { s._wg = AX[i][0]; s._wd = AX[i][1]; K(s, 'wg', [ti + .06, AX[i][0]], [ti + .36, 800, 'back']); K(s, 'wd', [ti + .06, AX[i][1]], [ti + .36, 100, 'back']); });
+  sfx(ti, 'type'); sfx(ti + .3, 'knock', 2);
+  seg(t0, tB, flight(t0, t0 + .55, S.ad.A, () => { const p = S.ad.A(); return {x: p.x + 120, y: 1180, d: p.d}; }, [], {ease: 'lin'}));  // the dot drops out of frame
+  // b) "timing,"  a playhead sweeps a 16-step grid; the last step collapses into the dot
+  const b = scene(tB, tC, OB);
+  for (let i = 0; i < 16; i++) $('div', 'abs', b, `left:${128 + i * 104}px;top:150px;width:84px;height:560px;border-radius:10px;background:${OW};opacity:.07`);
+  const lit = Array.from({length: 16}, (_, i) => { const l = $('div', 'abs', b, `left:${128 + i * 104}px;top:150px;width:84px;height:560px;border-radius:10px;background:${OR}`); const tt = tB + .06 + i * .048; K(l, 'o', [tt - .001, 0], [tt, 1, 'lin'], [tt + .14, 0, 'inn']); return l; });
+  const tcol = tB + .06 + 15 * .048;
+  K(lit[15], 'o', [tB + .06 + 15 * .048 - .001, 0], [tcol, 1, 'lin'], [tC - .14, 1], [tC - .06, 0, 'lin']);
+  const tm = T(b, `<span class="w">timing,</span>`, {x: 120, y: 1000, size: 300, w: 300, it: true, col: OW});
+  hardIn(words(tm)[0], tB);
+  const BX = 128 + 15 * 104 + 42;
+  seg(tB, tC, t => t < tC - .12 ? null : {x: BX, y: 430, d: lerp(84, 34, E.smooth(clamp01((t - (tC - .12)) / .1)))});
+  sfx(tC - .12, 'knock', 5);
+  // c) "and one orange dot."  push in, then the disk springs down to punctuation
+  const c = scene(tC, t1, OB);
+  const od = T(c, `<span class="w">one</span> <span class="w" style="color:${OR}">orange</span> <span class="w">dot${P(800)}</span>`, {x: 128, y: 950, size: 150, w: 800, col: OW});
+  words(od).forEach((s, i) => hardIn(s, i ? w[i + 5] - .04 : tC));
+  const A = pdA(od), td = w[7] + .02, tl = w[7] + .3;
+  const disk = t => { const q = E.expo(clamp01((t - tC) / .34)); return {x: lerp(BX, 1330, q), y: lerp(430, 470, q), d: lerp(34, 600, q)}; };
+  seg(tC, t1 + 5, t => {
+    if (t < td) return disk(t);
+    const P0 = disk(td), a = A();
+    if (t < tl) { const q = clamp01((t - td) / (tl - td)), d = lerp(P0.d, a.d, E.expo(q)); return q < .45 ? {x: lerp(P0.x, a.x, E.out(q / .45)), y: lerp(P0.y, a.y - 160, E.out(q / .45)), d} : flight(td + .45 * (tl - td), tl, {x: a.x, y: a.y - 160, d: a.d}, A)(t); }
+    return flight(td, tl, P0, A, fitHops(tl, [34], t1))(t);
+  });
+  sfx(tC, 'whoosh'); sfx(tl, 'thock', 1);
+  S.made.A = A;
+};
+
+S.picture = () => {
+  const w = L.picture.w, t0 = cut('picture'), t1 = end('picture');
+  const sc = scene(t0, t1, OW);
+  const np = T(sc, W('Now picture'), {x: 128, y: 270, size: 110, w: 500, col: OB, ls: '-0.025em'});
+  words(np).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0, 14));
+  const yb = T(sc, W('your business'), {x: 116, y: 630, size: 260, w: 900, d: 62, col: OB});
+  words(yb).forEach((s, i) => hardIn(s, w[i + 2] - .04));
+  const ii = T(sc, `<span class="w">in</span> <span class="w">it${P(300, true)}</span>`, {x: 1792, y: 880, size: 130, w: 300, it: true, align: 'right', col: OB});
+  words(ii).forEach((s, i) => hardIn(s, w[i + 4] - .04, 14));
+  // the dot rolls along an orange underline under "your business", then hops onto the period of "it."
+  const ul = $('div', 'abs', sc, `left:124px;top:704px;height:12px;width:10px;background:${OR}`);
+  const r0 = w[2] - .02, r1 = w[3] + .28, xs = 124, ROLLY = 704 - 16;
+  let xe = 0; LATE.unshift(() => { if (!xe) xe = yb.offsetLeft + yb.offsetWidth - 8; });
+  const roll = t => { const q = E.smooth(clamp01((t - r0) / (r1 - r0))); return {x: lerp(xs, xe, q), y: ROLLY, d: 30}; };
+  HOOKS.push(t => { const r = roll(t); ul.style.width = Math.max(0, r.x - xs) + 'px'; ul.style.opacity = t >= r0 ? 1 : 0; });
+  const A = pdA(ii), tl = w[5] + .02;
+  const intro = flight(t0 + .02, r0, S.made.A, () => ({x: xs, y: ROLLY, d: 30}), []);
+  seg(t0, t1 + 5, t => t < r0 ? intro(t) : t < r1 ? roll(t) : flight(r1, tl, roll(r1), A)(t));
+  sfx(r0, 'knock', 2); sfx(tl, 'knock', 3);
+  S.picture.A = A;
+};
+
+S.trades = () => {
+  const w = L.trades.w, t1 = end('trades');
+  const cuts = [cut('trades'), w[1] - .04, w[2] - .04, w[3] - .04, w[4] - .04, t1];
+  const spec = [
+    {bg: OR, html: `Roofers${P(900)}`, o: {x: 128, y: 420, size: 300, d: 100}, word: 0},
+    {bg: OB, html: `Plumbers${P(900)}`, o: {x: 1792, y: 930, size: 380, d: 62, align: 'right'}, word: 1},
+    {bg: OW, html: `HVAC${P(900)}`, o: {x: 128, y: 700, size: 360, d: 125}, word: 2},
+    {bg: OR, html: `Dentists${P(900)}`, o: {x: 200, y: 580, size: 360, d: 62}, word: 3},
+    {bg: OB, html: `<span class="w" style="font-style:italic;font-variation-settings:'wght' 300,'wdth' 100">Med</span> <span class="w">spas${P(900)}</span>`, o: {x: 128, y: 900, size: 320, d: 100}, word: 4},
+  ];
+  let prev = S.picture.A;
+  spec.forEach((s, i) => {
+    const sc = scene(cuts[i], cuts[i + 1], s.bg);
+    const el = T(sc, s.html, {...s.o, w: 900, col: inkOn(s.bg)});
+    if (i === 4) { const ws = words(el); hardIn(ws[0], cuts[4]); hardIn(ws[1], w[5] - .03); }
+    else hardIn(el, cuts[i]);
+    sfx(cuts[i], 'type');
+    const A = pdA(el), tl = (i === 4 ? w[5] : w[s.word]) + .12;
+    seg(cuts[i], cuts[i + 1] + (i === 4 ? 5 : 0), chain(cuts[i], tl, prev, A, [26], cuts[i + 1]));
+    sfx(tl, 'knock', i);
+    prev = A;
+  });
+  S.trades.A = prev;
+};
+
+const ART = {
+  roof: (L_) => `<svg width="100%" height="100%"><polyline points="${L_ ? '520,330 680,190 840,330' : '62,262 202,132 342,262'}" fill="none" stroke="${OR}" stroke-width="22" stroke-linejoin="miter" stroke-linecap="square"/></svg>`,
+  drop: (L_) => { const [cx, cy] = L_ ? [680, 250] : [202, 190]; return `<svg width="100%" height="100%"><path d="M${cx},${cy - 110} C${cx},${cy - 110} ${cx - 66},${cy - 22} ${cx - 66},${cy + 22} a66,66 0 0 0 132,0 C${cx + 66},${cy - 22} ${cx},${cy - 110} ${cx},${cy - 110} Z" fill="${OR}"/></svg>`; },
+  sun: (L_) => { const [cx, cy] = L_ ? [680, 250] : [202, 190]; return `<svg width="100%" height="100%"><circle cx="${cx}" cy="${cy}" r="78" fill="${OR}"/></svg>`; },
+};
+function sampleAd(p, mode) {  // a generic, labelled sample ad (no business name, numbers or claims)
+  const L_ = mode === 'L';
+  const box = $('div', 'abs', p, `inset:0;background:${OW};overflow:hidden`);
+  const rain = $('div', 'abs', box, 'inset:0'), R = rng(L_ ? 7 : 9), drops = [];
+  for (let i = 0; i < 46; i++) drops.push({el: $('div', 'abs', rain, `left:0;top:0;width:2px;height:${18 + R() * 22}px;background:#B9B8B3;border-radius:1px`), x: R() * 980 - 60, y: R() * 900, v: 900 + R() * 500});
+  HOOKS.push(t => { for (const d of drops) d.el.style.transform = `translate(${d.x + ((d.y + d.v * t) % 900) * .27}px,${(d.y + d.v * t) % 900 - 60}px) rotate(-15deg)`; });
+  const art = $('div', 'abs', box, 'inset:0', ART.roof(L_));
+  const hd = $('div', 'abs', box, `left:${L_ ? 44 : 34}px;top:${L_ ? 58 : 318}px;font-size:${L_ ? 64 : 58}px;line-height:.95;letter-spacing:-.035em;color:${OB};font-variation-settings:'wght' 900,'wdth' 100`,
+    `Before<br>the next<br><span class="tw" style="position:relative;display:inline-block;color:${OR};font-style:italic;font-variation-settings:'wght' 800,'wdth' 100">storm.</span>`);
+  const sub = $('div', 'abs', box, `left:${L_ ? 44 : 34}px;top:${L_ ? 286 : 520}px;font-size:${L_ ? 24 : 23}px;color:${OB};opacity:.72;font-variation-settings:'wght' 500,'wdth' 100`, 'Roof repairs and inspections');
+  $('div', 'abs', box, `left:${L_ ? 44 : 34}px;top:${L_ ? 358 : 590}px;height:70px;padding:0 10px 0 30px;border-radius:35px;background:${OB};color:${OW};display:flex;align-items:center;gap:22px;font-size:26px;font-variation-settings:'wght' 650,'wdth' 100`,
+    `Call now<span style="width:50px;height:50px;border-radius:25px;background:${OR};display:flex;align-items:center;justify-content:center;color:${OB}"><span style="width:26px;height:26px;display:block">${PH.phone.replace('<svg ', '<svg width="26" height="26" ')}</span></span>`);
+  return {box, rain, art, word: hd.querySelector('.tw'), sub, L: L_};
+}
+
+S.likethis = () => {
+  const w = L.likethis.w, t0 = cut('likethis'), t1 = end('likethis');
+  const sc = scene(t0, t1, OB);
+  // ghost-word karaoke: the whole offer is readable at once, each word lights on its VO onset
+  const a = T(sc, W('NEQO makes'), {x: 128, y: 430, size: 108, w: 900, col: OW});
+  const b = T(sc, `<span class="w">ads</span> <span class="w">like</span> <span class="w" style="color:${OR};font-style:italic;font-variation-settings:'wght' 800,'wdth' 100">this${P(800, true)}</span>`, {x: 128, y: 552, size: 108, w: 900, col: OW});
+  const c = T(sc, W('for local service businesses.'), {x: 132, y: 650, size: 46, w: 500, col: OW, ls: '-0.01em'});
+  [...words(a), ...words(b), ...words(c)].forEach((s, i) => K(s, 'o', [t0, .13], [w[i] - .04, .13], [w[i] + .06, 1, 'out']));
+  const A = pdA(b), tl = w[4] + .12;
+  seg(t0, t1 + 5, chain(t0, tl, S.trades.A, A, [30, 9], t1));
+  sfx(tl, 'thock', 2);
+  // the sample ad: lands as a 16:9 artboard, then springs to 9:16 and reflows
+  const lab = $('div', 'abs mono', sc, `left:966px;top:214px;font-size:36px;color:${OW};white-space:nowrap`, `<span style="color:${OR}">SAMPLE AD</span> <span class="tr">/ ROOFING</span>`);
+  const fmt = $('div', 'abs mono', sc, `left:966px;top:806px;font-size:22px;color:${OW};opacity:.55;white-space:nowrap`, '1920 x 1080 LANDSCAPE');
+  const shell = $('div', 'abs', sc, `left:966px;top:280px;width:884px;height:506px;padding:10px;border-radius:30px;background:rgba(242,241,238,.06);border:1px solid rgba(242,241,238,.12)`);
+  const core = $('div', 'abs', shell, `left:10px;top:10px;right:10px;bottom:10px;border-radius:20px;overflow:hidden;background:${OW}`);
+  const LA = sampleAd($('div', 'abs', core, 'left:0;top:0;width:864px;height:486px'), 'L');
+  const PA = sampleAd($('div', 'abs', core, 'left:0;top:0;width:405px;height:720px'), 'P');
+  const tin = t0 + .04, ts = w[4] - .06, tw = .42;
+  K(shell, 'o', [tin - .001, 0], [tin, 1, 'lin']); K(shell, 'y', [tin, 60], [tin + .4, 0, 'expo']);
+  K(lab, 'o', [tin + .05, 0], [tin + .15, 1]); K(fmt, 'o', [tin + .05, 0], [tin + .15, .55]);
+  // swap content cleanly: landscape clears before the frame narrows, portrait arrives once it has settled
+  K(LA.box.parentNode, 'o', [ts - .08, 1], [ts, 0, 'lin']); K(PA.box.parentNode, 'o', [ts + .25, 0], [ts + .35, 1, 'lin']);
+  const BL = {l: 966, t: 280, w: 884, h: 506}, BP = {l: 1240, t: 168, w: 425, h: 740};
+  HOOKS.push(t => {
+    const q = E.spring(clamp01((t - ts) / tw)), g = k => lerp(BL[k], BP[k], q) + 'px';
+    shell.style.left = g('l'); shell.style.top = g('t'); shell.style.width = g('w'); shell.style.height = g('h');
+    lab.style.left = g('l'); lab.style.top = (lerp(BL.t, BP.t, q) - 62) + 'px';
+    fmt.style.left = g('l'); fmt.style.top = (lerp(BL.t + BL.h, BP.t + BP.h, q) + 20) + 'px';
+    fmt.textContent = t < ts + .25 ? '1920 x 1080 LANDSCAPE' : '1080 x 1920 STORY';
+  });
+  sfx(ts, 'whoosh'); sfx(ts + .3, 'knock', 5);
+  // the system adapts to the viewer's trade: select the word, retype it, swap the art
+  const TR = [[w[6] - .02, 'leak.', '/ PLUMBING', 'Leak repairs and drain service', 'drop'], [w[8] - .02, 'heatwave.', '/ HVAC', 'AC repair and tune-ups', 'sun']];
+  const sel = $('div', 'abs', PA.box, `border:3px solid ${OR};border-radius:4px;opacity:0`);
+  HOOKS.push(t => {
+    let cur = ['storm.', '/ ROOFING', 'Roof repairs and inspections', 'roof']; for (const [tt, ...v] of TR) if (t >= tt) cur = v;
+    if (PA.word.textContent !== cur[0]) { PA.word.textContent = cur[0]; PA.sub.textContent = cur[2]; lab.querySelector('.tr').textContent = cur[1]; PA.art.innerHTML = ART[cur[3]](false); }
+    const on = TR.some(([tt]) => t >= tt - .12 && t < tt + .14);
+    sel.style.opacity = on ? 1 : 0;
+    if (on) { const r = PA.word; sel.style.left = (r.offsetLeft + r.parentNode.offsetLeft - 8) + 'px'; sel.style.top = (r.offsetTop + r.parentNode.offsetTop - 2) + 'px'; sel.style.width = (r.offsetWidth + 16) + 'px'; sel.style.height = (r.offsetHeight + 6) + 'px'; }
+    PA.rain.style.opacity = t >= TR[1][0] ? 0 : 1;
+  });
+  TR.forEach(([tt]) => { sfx(tt - .12, 'type'); sfx(tt, 'knock', 6); });
+  S.likethis.A = A;
+};
+
+S.website = () => {
+  const w = L.website.w, t0 = cut('website'), t1 = end('website');
+  const sc = scene(t0, t1, OW);
+  const a = T(sc, W('And the'), {x: 128, y: 300, size: 76, w: 500, col: OB, ls: '-0.02em'});
+  const b = T(sc, `<span class="w">website</span>`, {x: 116, y: 580, size: 270, w: 900, d: 62, col: OB});
+  const c = T(sc, W('they land on.'), {x: 128, y: 740, size: 100, w: 300, it: true, col: OB});
+  [...words(a), ...words(b), ...words(c)].forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0, i === 2 ? 24 : 14));
+  const lab = $('div', 'abs mono', sc, `left:1012px;top:150px;font-size:34px;color:${OB};white-space:nowrap`, `<span style="color:${OR}">SAMPLE</span> LANDING PAGE`);
+  const shell = $('div', 'abs', sc, `left:1010px;top:206px;width:790px;height:640px;padding:10px;border-radius:30px;background:rgba(14,14,13,.04);border:1px solid rgba(14,14,13,.12)`);
+  const core = $('div', 'abs', shell, `left:10px;top:10px;right:10px;bottom:10px;border-radius:20px;overflow:hidden;background:${OB}`);
+  const pg = $('div', 'abs', core, 'left:0;top:64px;width:770px;height:700px');
+  pg.innerHTML = `<div class="abs" style="left:48px;right:48px;top:30px;display:flex;justify-content:space-between;align-items:center;color:${OW};font-size:22px;font-variation-settings:'wght' 600,'wdth' 100">Your company<span style="display:flex;gap:30px;opacity:.6;font-variation-settings:'wght' 500,'wdth' 100">Services<span>About</span><span>Contact</span></span></div>
+    <div class="abs" style="left:48px;top:118px;color:${OW};font-size:78px;line-height:.95;letter-spacing:-.035em;font-variation-settings:'wght' 900,'wdth' 100">Before the<br>next <span style="color:${OR};font-style:italic;font-variation-settings:'wght' 800,'wdth' 100">storm.</span></div>
+    <div class="abs" style="left:48px;top:318px;color:${OW};opacity:.66;font-size:26px;font-variation-settings:'wght' 500,'wdth' 100">Roof repairs and inspections</div>`;
+  $('div', 'abs', core, `left:0;top:0;right:0;height:64px;background:${OB};border-bottom:1px solid rgba(242,241,238,.1);display:flex;align-items:center;padding:0 24px`,
+    `<span class="mono" style="padding:8px 18px;border-radius:16px;background:rgba(242,241,238,.07);color:rgba(242,241,238,.6);font-size:18px;font-weight:500">your site</span>`);
+  K(shell, 'o', [t0 - .001, 0], [t0, 1, 'lin']); K(shell, 'x', [t0, 80], [t0 + .45, 0, 'expo']); K(lab, 'o', [t0 + .08, 0], [t0 + .2, 1]);
+  K(pg, 'y', [t0, 0], [t1, -24, 'lin']);
+  // the dot drops into the hero and becomes the call button
+  const PILL_Y = 400, PX = {x: 1021 + 48, y: 217 + 64 + PILL_Y}, pw = 300, ph = 84;
+  const scroll = t => val(ELS.get(pg).y, t);
+  const target = t => ({x: PX.x + pw / 2, y: PX.y + ph / 2 + scroll(t == null ? t1 : t), d: 34});
+  const tl = w[2] + .12, tm = tl + .26;
+  const fl = chain(t0, tl, S.likethis.A, target, [], t1);
+  seg(t0, t1 + 5, t => {
+    if (t < tl) return fl(t);
+    const g = target(t), q = E.spring(clamp01((t - tl) / .32));
+    return {x: g.x, y: g.y, d: 34, w: lerp(34, pw, q), h: lerp(34, ph, q), ...(t < tl + .09 ? squash(t, tl) : {})};
+  });
+  const lbl = $('div', 'abs', FX, `left:${PX.x}px;top:${PX.y}px;width:${pw}px;height:${ph}px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 34px;color:${OB};font-size:30px;font-variation-settings:'wght' 700,'wdth' 100`,
+    `<span class="cn"></span><span class="ic" style="width:60px;height:60px;border-radius:30px;background:${OB};display:flex;align-items:center;justify-content:center;color:${OR}">${PH.phone.replace('<svg ', '<svg width="30" height="30" ')}</span>`);
+  K(lbl, 'o', [tm - .001, 0], [tm, 1, 'lin'], [t1 - .001, 1], [t1, 0, 'lin']);
+  typeText(lbl.querySelector('.cn'), 'Call now', tm + .02, tm + .3);
+  const ic = lbl.querySelector('.ic svg'), tr = tm + .38;
+  HOOKS.push(t => { lbl.style.transform = `translateY(${scroll(t)}px)`; const q = t - tr; ic.style.transform = q > 0 && q < .5 ? `rotate(${14 * Math.sin(q * 38) * Math.exp(-q * 7)}deg)` : 'none'; });
+  sfx(tl, 'thock', 0); sfx(tm, 'pop', 4); sfx(tr, 'blip');
+  S.website.A = () => target();
+};
+
+S.services = () => {
+  const w = L.services.w, t0 = cut('services'), tB = w[2] - .04, tC = w[3] - .04, t1 = end('services');
+  // a) Local SEO: a search and a pin, on an irregular street grid
+  const a = scene(t0, tB, OB), R = rng(31);
+  let gx = 40, lines = '';
+  while (gx < 1920) { lines += `<line x1="${gx}" y1="0" x2="${gx + R() * 60 - 30}" y2="1080"/>`; gx += 90 + R() * 170; }
+  let gy = 60; while (gy < 1080) { lines += `<line x1="0" y1="${gy}" x2="1920" y2="${gy + R() * 50 - 25}"/>`; gy += 80 + R() * 150; }
+  lines += '<line x1="300" y1="1080" x2="1500" y2="0"/><line x1="900" y1="1080" x2="1920" y2="380"/>';
+  $('div', 'abs', a, 'inset:0', `<svg width="1920" height="1080" stroke="${OW}" stroke-opacity=".1" stroke-width="2">${lines}</svg>`);
+  const sb = $('div', 'abs', a, `left:128px;top:150px;width:640px;height:88px;border-radius:44px;border:2px solid rgba(242,241,238,.3);background:${OB};display:flex;align-items:center;gap:20px;padding:0 32px;color:${OW}`,
+    `<span style="width:34px;height:34px;display:block;opacity:.8">${PH['magnifying-glass'].replace('<svg ', '<svg width="34" height="34" ')}</span><span class="mono q" style="font-size:34px;font-weight:500;letter-spacing:.02em"></span>`);
+  cutIn(sb, t0);
+  typeText(sb.querySelector('.q'), 'roofer near me', t0 + .04, t0 + .5);
+  for (let i = 0; i < 4; i++) sfx(t0 + .04 + i * .12, 'type');
+  const ls = T(a, W('Local SEO.'), {x: 128, y: 930, size: 230, w: 900, col: OW});
+  words(ls).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0));
+  const PIN = fixedA(1330, 470, 46), tp = w[1] + .14;
+  seg(t0, tB, chain(t0, tp, S.website.A, PIN, [52, 15], tB));
+  sfx(tp, 'thock', 2);
+  // b) Social.
+  const b = scene(tB, tC, OR);
+  const so = T(b, `Social${P(900)}`, {x: 1800, y: 640, size: 300, w: 900, d: 125, align: 'right', col: OB});
+  hardIn(so, tB); sfx(tB, 'type');
+  const As = pdA(so), tls = w[2] + .14;
+  seg(tB, tC, chain(tB, tls, PIN, As, [28, 10], tC));
+  sfx(tls, 'knock', 2);
+  // c) Paid ads.
+  const c = scene(tC, t1, OW);
+  const pa = T(c, `<span class="w" style="font-style:italic;font-variation-settings:'wght' 300,'wdth' 100">Paid</span> <span class="w">ads${P(900)}</span>`, {x: 128, y: 720, size: 360, w: 900, col: OB});
+  const pw_ = words(pa); hardIn(pw_[0], tC); hardIn(pw_[1], w[4] - .03); sfx(tC, 'type');
+  const Ap = pdA(pa), tlp = w[4] + .15;
+  seg(tC, t1 + 5, chain(tC, tlp, As, Ap, [28], t1));
+  sfx(tlp, 'knock', 1);
+  S.services.A = Ap;
+};
+const fixedA = (x, y, d) => () => ({x, y, d});
+
+S.terms = () => {
+  const w = L.terms.w, t0 = cut('terms'), tB = w[2] - .04, t1 = end('terms');
+  const a = scene(t0, tB, OB);
+  const one = T(a, 'One', {x: 104, y: 840, size: 560, w: 900, d: 62, col: OW});
+  hardIn(one, t0); sfx(t0, 'type');
+  const sub = T(a, `subscription${P(500)}`, {x: 1010, y: 840, size: 110, w: 500, col: OW, ls: '-0.02em'});
+  hardIn(sub, w[1] - .03, 14);
+  const A = pdA(sub), tl = w[1] + .45;
+  seg(t0, tB, chain(t0, tl, S.services.A, A, [20], tB));
+  sfx(tl, 'knock', 2);
+  // b) No contracts: struck through, then the letters drop and the dot follows them out
+  const b = scene(tB, t1, OR);
+  const no = T(b, 'No', {x: 104, y: 560, size: 560, w: 900, col: OB});
+  hardIn(no, tB); sfx(tB, 'type');
+  const ct = T(b, 'contracts'.split('').map(ch => `<span class="w">${ch}</span>`).join('') + P(900), {x: 116, y: 890, size: 230, w: 900, col: OB});
+  hardIn(ct, w[3] - .03);
+  const Ac = pdA(ct), tlc = w[3] + .12;
+  const strike = $('div', 'abs', b, `left:116px;top:0;height:14px;width:10px;background:${OB};transform-origin:0 50%`);
+  const s0 = w[3] + .2, s1 = s0 + .2;
+  LATE.unshift(() => { if (!strike._w) { strike._w = ct.offsetWidth - ct.querySelector('.pd').offsetWidth; strike.style.left = ct.offsetLeft + 'px'; strike.style.top = (ct.offsetTop + ct.offsetHeight * .52) + 'px'; } });
+  HOOKS.push(t => { const q = E.out(clamp01((t - s0) / (s1 - s0))); strike.style.width = (q * (strike._w || 1000)) + 'px'; strike.style.opacity = t >= s0 ? 1 : 0; });
+  sfx(s0, 'whoosh');
+  const R = rng(5), tf = s1 + .06, lt = words(ct);
+  lt.forEach((s, i) => { const t = tf + i * .045, rot = (R() - .5) * 50, vx = (R() - .5) * 160;
+    HOOKS.push(tt => { const q = tt - t; s.style.transform = q > 0 ? `translate(${vx * q}px,${.5 * 4200 * q * q}px) rotate(${rot * q * 2.2}deg)` : 'none'; }); });
+  const tsf = tf + 9 * .045 - .2;
+  HOOKS.push(t => { const q = t - tsf; strike.style.transform = q > 0 ? `translateY(${.5 * 4200 * q * q}px)` : 'none'; });
+  sfx(tf, 'clatter', .45); sfx(tB, 'mute', t1 - tB);
+  const tball = tf + .12, land = chain(tB, tlc, A, Ac, [], s0);
+  seg(tB, t1 + 5, t => {
+    if (t < tball) return land(t);
+    const a = Ac(), q = t - tball; return {x: a.x + 60 * q, y: a.y + .5 * 4200 * q * q, d: a.d};
+  });
+  sfx(tlc, 'knock', 1);
+  S.terms.fallX = () => Ac().x;
+};
+
+S.live = () => {
+  const w = L.live.w, t0 = cut('live'), t1 = end('live');
+  const sc = scene(t0, t1, OW);
+  const li = T(sc, W('Live in'), {x: 128, y: 290, size: 120, w: 500, col: OB, ls: '-0.02em'});
+  words(li).forEach((s, i) => hardIn(s, i ? w[i] - .04 : t0, 14));
+  const n = T(sc, '<span class="one">1</span>4', {x: 104, y: 930, size: 640, w: 900, d: 62, col: OB, ls: '-0.04em'});
+  hardIn(n, w[2] - .04);
+  K(n, 'wg', [w[2] - .04, 120], [w[2] + .5, 900, 'out']); n._wd = 62;
+  const dy = T(sc, `<span class="w">days${P(300, true)}</span>`, {x: 760, y: 930, size: 230, w: 300, it: true, col: OB});
+  LATE.unshift(() => { if (!dy._set) { dy._set = 1; const pv = n.style.fontVariationSettings; n.style.fontVariationSettings = '"wght" 900,"wdth" 62'; const wd = n.offsetWidth; n.style.fontVariationSettings = pv; dy.style.left = (n.offsetLeft + wd + 34) + 'px'; } });
+  hardIn(words(dy)[0], w[3] - .04);
+  // the dot falls back in from the top, lands on the "1" as the numeral builds, then hops onto "days."
+  const A = pdA(dy), one = n.querySelector('.one');
+  CAN.font = '900 640px Archivo'; const asc1 = CAN.measureText('1').actualBoundingBoxAscent;
+  const ON1 = () => { const r = one.getBoundingClientRect(), base = n.firstChild.getBoundingClientRect().top, d = A().d; return {x: r.left + r.width * .56, y: base - asc1 - d / 2, d}; };
+  const t1a = w[2] + .06, th = w[3] - .08, tl = w[3] + .14;
+  const drop = flight(t0, t1a, () => ({x: S.terms.fallX(), y: -60, d: A().d}), ON1, [], {ease: 'lin'});
+  const hop = flight(th, tl, ON1, A, fitHops(tl, [30, 9], t1));
+  seg(t0, t1 + 5, t => t < t1a ? drop(t) : t < th ? {...ON1(), ...(t < t1a + .09 ? squash(t, t1a) : {})} : hop(t));
+  sfx(t1a, 'knock', 3); sfx(tl, 'thock', 1);
+  S.live.A = A;
+};
+
+S.end = () => {
+  const w = L.end.w, t0 = cut('end');
+  const sc = scene(t0, TL.total + 1, OB);
+  const mk = $('div', 'abs', sc, `left:128px;top:298px;width:148px;height:142px;background:${OW};-webkit-mask:url(${LOGO_N}) center/contain no-repeat;mask:url(${LOGO_N}) center/contain no-repeat`);
+  K(mk, 'o', [t0 - .001, 0], [t0, 1, 'lin']); K(mk, 'ct', [t0, 100], [t0 + .2, 0, 'out']);
+  const nd = T(sc, W('NEQO Digital'), {x: 304, y: 440, size: 150, w: 800, col: OW});
+  const ws = words(nd); hardIn(ws[0], w[2] - .04); hardIn(ws[1], w[3] - .04);
+  const url = T(sc, `<span class="u1"></span>${P(800)}<span class="u2"></span>`, {x: 128, y: 650, size: 128, w: 800, col: OW, ls: '-0.025em'});
+  typeText(url.querySelector('.u1'), 'neqodigital', w[2] + .04, w[3] + .26);
+  typeText(url.querySelector('.u2'), 'com', w[5] - .02, w[5] + .08);
+  for (let i = 0; i < 6; i++) sfx(w[2] + .04 + i * .1, 'type');
+  // the dot glides over from "days." and drops into place as the "." of the URL, then everything holds still
+  const A = pdA(url), tl = w[4] + .08, tg = tl - .2;
+  const glide = t => { const p = S.live.A(), a = A(), q = E.smooth(clamp01((t - t0) / (tg - t0))); return {x: lerp(p.x, a.x, q), y: lerp(p.y, a.y - 110, q), d: lerp(p.d, a.d * 1.4, q)}; };
+  const fall = flight(tg, tl, () => glide(tg), A, fitHops(tl, [14, 4], TL.total));
+  seg(t0, TL.total + 1, t => t < tg ? glide(t) : fall(t));
+  sfx(tl, 'knock', 2); sfx(w[5] + .25, 'outro');
+};
+
+// ---------------------------------------------------------------- build
+window.build = async () => {
+  await document.fonts.ready;
+  await Promise.all(['300', '500', '800', '900'].map(x => document.fonts.load(`${x} 60px Archivo`)).concat([document.fonts.load('italic 300 60px Archivo'), document.fonts.load('600 20px "JetBrains Mono"')]));
+  for (const id of ORDER) S[id]();
+  buildHUD();
+  for (const [el, y] of BLS) el.style.top = (y - el.firstChild.getBoundingClientRect().top) + 'px';  // seat each block on its baseline
+  seek(0);
+  return SFX.sort((a, b) => a[0] - b[0]);
+};
+window.seek = seek;
+</script></body></html>

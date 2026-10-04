@@ -20,7 +20,7 @@ API = "https://generativelanguage.googleapis.com/v1beta"
 W, H, FPS, SR = 1080, 1920, 30, 48000
 VOICE = os.environ.get("GEMINI_VOICE", "Puck")
 TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"]
-LEAD, HOLD, MAX_VO = 0.35, 2.0, 27.0
+LEAD, HOLD, MAX_VO, MAX_TOTAL = 0.35, 2.0, 27.0, 30.0
 RENDER = os.path.join(HERE, "render.cjs")
 # music: tempo, (bass root, chord) per bar, chord-stab sound ("saw" stabs or "pluck")
 BPM, STAB = 124, "saw"
@@ -427,7 +427,7 @@ def prepare():
     f = lambda x: round(LEAD + m(x) / tempo, 3)
     lines = [{"id": lid, "text": text, "t0": f(sp[0]), "t1": f(sp[1]), "w": [f(x) for x in word_starts(chunks, text.split(), sp)]}
              for (lid, text), sp in zip(LINES, spans)]
-    total = round(min(30.0, LEAD + vo_len + HOLD), 3)
+    total = round(min(MAX_TOTAL, LEAD + vo_len + HOLD), 3)
     print(f"VO {vo_len:.2f}s (tempo {tempo:.3f}); reel {total:.2f}s; line starts:", ", ".join(f"{l['t0']:.2f}" for l in lines))
     open(os.path.join(BUILD, "timeline.js"), "w").write("window.TL = " + json.dumps({"total": total, "lines": lines}) + ";\n")
     return total
@@ -440,7 +440,7 @@ def render(total):
     shutil.rmtree(frames, ignore_errors=True); os.makedirs(frames)
     npm_root = subprocess.check_output(["npm", "root", "-g"], text=True).strip()
     run(["node", RENDER, os.path.join(HERE, "scene.html"), frames, str(FPS), str(total), "4"],
-        env={**os.environ, "NODE_PATH": npm_root})
+        env={**os.environ, "NODE_PATH": npm_root, "REEL_W": str(W), "REEL_H": str(H)})
     events = json.load(open(os.path.join(BUILD, "sfx.json")))
     drop = next(t for t, k, _ in events if k == "drop")
     music, sfx = os.path.join(BUILD, "music.wav"), os.path.join(BUILD, "sfx.wav")
@@ -469,7 +469,7 @@ def render(total):
         if abs(lufs + 14) < .3:
             break
         gain += -14 - lufs
-    run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d.jpg"), "-i", master,
+    run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(frames, "f_%05d." + ("png" if os.environ.get("FRAME_FMT") == "png" else "jpg")), "-i", master,
          "-filter_complex", "[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]",
          "-map", "[v]", "-map", "1:a",
          "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high", "-level:v", "4.1",
