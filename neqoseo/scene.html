@@ -1,0 +1,408 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>NEQO Local SEO reel</title>
+<!-- Motion graphics for the NEQO Digital "Local SEO - rank #1 on Google" reel. Driven by build/timeline.js (VO-synced word times);
+     render.cjs calls window.build() once, then window.seek(t) per frame. -->
+<style>
+@font-face{font-family:I;src:url(build/fonts/Inter-500.ttf);font-weight:500}
+@font-face{font-family:I;src:url(build/fonts/Inter-600.ttf);font-weight:600}
+@font-face{font-family:I;src:url(build/fonts/Inter-700.ttf);font-weight:700}
+@font-face{font-family:I;src:url(build/fonts/Inter-800.ttf);font-weight:800}
+@font-face{font-family:I;src:url(build/fonts/Inter-900.ttf);font-weight:900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#04050b;font-family:I,sans-serif;color:#fff;-webkit-font-smoothing:antialiased}
+#bg,#cam,#fx,.scene,.inner{position:absolute;inset:0}
+.abs{position:absolute}
+.glow{position:absolute;border-radius:50%}
+.dot{position:absolute;left:0;top:0;border-radius:50%;background:#fff}
+.hl{position:absolute;left:80px;right:80px;white-space:nowrap;text-align:center;font-weight:800;font-size:96px;line-height:1.1;letter-spacing:-.035em}
+.w{display:inline-block;padding:.04em .02em .12em;margin:0 -.02em;background:linear-gradient(180deg,#fff 40%,#b4b9c8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.w.g{background-image:linear-gradient(90deg,#3d8bff 0%,#8b5cf6 38%,#ec4899 70%,#ff7a3d 100%)}
+.card{position:absolute;background:linear-gradient(180deg,rgba(30,31,40,.96),rgba(18,19,25,.96));border:2px solid rgba(255,255,255,.08);border-radius:40px;box-shadow:0 60px 140px rgba(0,0,0,.7),inset 0 2px 0 rgba(255,255,255,.05)}
+.row{display:flex;align-items:center}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:10px 22px;font-weight:700}
+</style></head>
+<body><div id="bg"></div><div id="cam"></div><div id="fx"></div>
+<script src="../neqo999/assets/icons.js"></script>
+<script src="build/timeline.js"></script>
+<script>
+const TL = window.TL, BG = document.getElementById('bg'), CAM = document.getElementById('cam'), FX = document.getElementById('fx');
+const GRAD = 'linear-gradient(90deg,#3d8bff 0%,#8b5cf6 38%,#ec4899 70%,#ff7a3d 100%)';
+const gtxt = s => `<span style="background:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent">${s}</span>`;
+
+// ---------------------------------------------------------------- tiny deterministic animation engine
+const E = {lin: x => x, out: x => 1 - (1 - x) ** 3, inn: x => x ** 3, io: x => x < .5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2,
+  back: x => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2};
+const ELS = new Map(), HOOKS = [], SFX = [], SHAKES = [], HLS = [];
+const DEF = {x: 0, y: 0, s: 1, sx: 1, r: 0, o: 1, b: 0, sk: 0};
+function K(el, prop, ...keys) {  // keys: [time, value, easing-into-this-key]
+  let s = ELS.get(el); if (!s) ELS.set(el, s = {});
+  (s[prop] = s[prop] || []).push(...keys); s[prop].sort((a, b) => a[0] - b[0]);
+}
+function val(k, t) {
+  if (t <= k[0][0]) return k[0][1];
+  for (let i = 1; i < k.length; i++) if (t < k[i][0]) {
+    const [a, va] = k[i - 1], [b, vb, e] = k[i]; return va + (vb - va) * E[e || 'out']((t - a) / (b - a));
+  }
+  return k[k.length - 1][1];
+}
+function seek(t) {
+  for (const [el, s] of ELS) {
+    const v = {...DEF}; for (const p in s) v[p] = val(s[p], t);
+    el.style.opacity = v.o; el.style.visibility = v.o < .002 ? 'hidden' : 'visible';
+    el.style.transform = `translate(${v.x}px,${v.y}px) rotate(${v.r}deg) skewX(${v.sk}deg) scale(${v.s * v.sx},${v.s})`;
+    el.style.filter = v.b > .05 ? `blur(${v.b.toFixed(2)}px)` : 'none';
+  }
+  let dx = 0, dy = 0;
+  for (const [t0, a] of SHAKES) if (t >= t0) { const q = t - t0, d = a * Math.exp(-q * 9); dx += d * Math.sin(q * 71); dy += d * Math.cos(q * 53); }
+  CAM.style.transform = `translate(${dx}px,${dy}px)`;
+  for (const h of HOOKS) h(t);
+}
+function $(tag, cls, parent, css, html) {
+  const e = document.createElement(tag); if (cls) e.className = cls; if (css) e.style.cssText = css; if (html != null) e.innerHTML = html;
+  parent.appendChild(e); return e;
+}
+const sfx = (t, type, p = 0) => SFX.push([+t.toFixed(3), type, p]);
+const clamp01 = x => Math.max(0, Math.min(1, x));
+function reveal(el, t, d = .32, dy = 34) { K(el, 'o', [t, 0], [t + d * .6, 1]); K(el, 'b', [t, 14], [t + d, 0]); K(el, 'y', [t, dy], [t + d, 0]); }
+function pop(el, t, from = .5, snd = 0) {
+  K(el, 'o', [t, 0], [t + .1, 1]); K(el, 's', [t, from], [t + .42, 1, 'back']); K(el, 'b', [t, 8], [t + .2, 0]);
+  if (snd !== null) sfx(t, 'pop', snd);
+}
+function slide(el, t, dx, dy, d = .5) { K(el, 'o', [t, 0], [t + .2, 1]); K(el, 'x', [t, dx], [t + d, 0]); K(el, 'y', [t, dy], [t + d, 0]); K(el, 'b', [t, 12], [t + .3, 0]); }
+function flash(t, a = .6) {
+  const f = $('div', 'abs', FX, 'inset:0;background:radial-gradient(circle at 50% 45%,#fff,rgba(190,200,255,.55) 35%,transparent 75%)');
+  K(f, 'o', [t, 0], [t + .03, a, 'lin'], [t + .4, 0]);
+}
+const shake = (t, a) => SHAKES.push([t, a]);
+function typeText(el, txt, t0, t1) { HOOKS.push(t => { el.textContent = txt.slice(0, Math.round(clamp01((t - t0) / (t1 - t0)) * txt.length)); }); }
+function count(el, a, b, t0, t1) { HOOKS.push(t => { el.textContent = Math.round(a + (b - a) * E.out(clamp01((t - t0) / (t1 - t0)))).toLocaleString('en-US'); }); }
+
+// headline: tokens split on spaces, '|' = line break, *...* = gradient words; ws[i] = reveal time of word i
+function headline(p, txt, ws, top, size = 96, css = '') {
+  const el = $('div', 'hl', p, `top:${top}px;font-size:${size}px;${css}`), words = [];
+  let g = false;
+  for (const tok of txt.split(' ')) {
+    if (tok === '|') { $('br', null, el); continue; }
+    let w = tok; if (w[0] === '*') { g = true; w = w.slice(1); }
+    const end = w.endsWith('*'); if (end) w = w.slice(0, -1);
+    const sp = $('span', 'w' + (g ? ' g' : ''), el); sp.textContent = w; words.push(sp);
+    el.appendChild(document.createTextNode(' '));
+    if (end) g = false;
+  }
+  words.forEach((w, i) => ws[i] != null && reveal(w, ws[i] - .06));
+  HLS.push(el); return {el, words};
+}
+function fixGradients() {  // one continuous gradient across each highlighted phrase
+  for (const el of HLS) {
+    const gs = [...el.querySelectorAll('.w.g')]; if (!gs.length) continue;
+    const L = Math.min(...gs.map(g => g.offsetLeft)), R = Math.max(...gs.map(g => g.offsetLeft + g.offsetWidth));
+    for (const g of gs) { g.style.backgroundSize = `${R - L}px 100%`; g.style.backgroundPosition = `${L - g.offsetLeft}px 0`; }
+  }
+}
+
+// ---------------------------------------------------------------- background: nebula glows + drifting particles
+function buildBG() {
+  const G = [[-420, -300, 1500, 'rgba(37,99,235,.42)'], [380, 900, 1500, 'rgba(126,34,206,.36)'],
+             [-500, 1250, 1300, 'rgba(219,39,119,.2)'], [500, -500, 1100, 'rgba(14,165,233,.16)']]
+    .map(([x, y, d, c]) => $('div', 'glow', BG, `left:${x}px;top:${y}px;width:${d}px;height:${d}px;background:radial-gradient(circle,${c} 0%,transparent 65%)`));
+  let seed = 11; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  const P = [];
+  for (let i = 0; i < 90; i++) {
+    const big = i < 14, sz = big ? 30 + rnd() * 70 : 2 + rnd() * 4;
+    const d = $('div', 'dot', BG, `width:${sz}px;height:${sz}px;` + (big
+      ? `background:radial-gradient(circle,rgba(${rnd() < .5 ? '140,120,255' : '255,90,160'},.16),transparent 70%)`
+      : `opacity:${.2 + rnd() * .6};box-shadow:0 0 ${sz * 2}px rgba(160,170,255,.8)`));
+    P.push({d, x: rnd() * 1080, y: rnd() * 1920, vx: (rnd() - .5) * 14, vy: -6 - rnd() * 22});
+  }
+  $('div', 'abs', BG, 'inset:0;background:radial-gradient(ellipse 80% 65% at 50% 45%,transparent 40%,rgba(0,0,0,.55) 100%)');
+  HOOKS.push(t => {
+    G.forEach((g, i) => g.style.transform = `translate(${Math.sin(t * .25 + i * 1.7) * 90}px,${Math.cos(t * .2 + i) * 70}px) scale(${1 + .08 * Math.sin(t * .3 + i)})`);
+    for (const p of P) p.d.style.transform = `translate(${((p.x + p.vx * t) % 1080 + 1080) % 1080}px,${((p.y + p.vy * t) % 1920 + 1920) % 1920}px)`;
+  });
+}
+
+// ---------------------------------------------------------------- helpers for this reel
+function fitAndGrade() {  // shrink lines that would overflow, then one continuous gradient per highlighted phrase
+  for (const el of HLS) {
+    let fs = parseFloat(el.style.fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && fs > 40) { fs -= 3; el.style.fontSize = fs + 'px'; }
+    const gs = [...el.querySelectorAll('.w.g')]; if (!gs.length) continue;
+    const L = Math.min(...gs.map(g => g.offsetLeft)), R = Math.max(...gs.map(g => g.offsetLeft + g.offsetWidth));
+    for (const g of gs) { g.style.backgroundSize = `${R - L}px 100%`; g.style.backgroundPosition = `${L - g.offsetLeft}px 0`; }
+  }
+}
+function scene(t0, t1) {
+  const sc = $('div', 'scene', CAM), inner = $('div', 'inner', sc), first = t0 <= .001, last = t1 >= TL.total - .001;
+  K(sc, 'o', [t0 - (first ? 0 : .04), first ? 1 : 0], [t0 + .16, 1]);
+  if (!first) { K(sc, 's', [t0 - .04, 1.07], [t0 + .26, 1]); K(sc, 'b', [t0 - .04, 16], [t0 + .2, 0]); sfx(t0, 'whoosh'); }
+  if (!last) { K(sc, 'o', [t1 - .12, 1], [t1 + .06, 0, 'inn']); K(sc, 's', [t1 - .12, 1], [t1 + .06, .93, 'inn']); K(sc, 'b', [t1 - .12, 0], [t1 + .06, 14, 'inn']); }
+  K(inner, 's', [t0, 1], [t1, 1.03, 'lin']);
+  return inner;
+}
+function logo(p, y0, sc) {  // NEQO DIGITAL lockup cut from the first reel's end card (840x750 source canvas)
+  return [['logo_n', 260, 292, 35], ['logo_neqo', 750, 45, 395], ['logo_digital', 540, 150, 632]].map(([f, w, x, y]) => {
+    const im = $('img', 'abs', p, `left:${540 + (x - 420) * sc}px;top:${y0 + y * sc}px;width:${w * sc}px`); im.src = `../reel/assets/${f}.png`; return im;
+  });
+}
+const ico = (n, s = 32, c = '#fff', sw = 2.2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" style="flex:none">${ICONS[n]}</svg>`;
+const STARS = '<span style="color:#fbbf24;letter-spacing:2px">★★★★★</span>';
+const skel = (w, h = 24, a = .16) => `<div style="width:${w}px;height:${h}px;border-radius:${h / 2}px;background:rgba(255,255,255,${a})"></div>`;
+const tag = (p, css) => $('div', 'abs', p, css + ';font-weight:800;font-size:19px;letter-spacing:.16em;color:rgba(255,255,255,.62);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);padding:6px 13px;border-radius:999px', 'EXAMPLE');
+const note = (p, txt = 'Illustrative example.') => $('div', 'abs', p, 'left:60px;right:60px;top:1478px;text-align:center;font-weight:500;font-size:24px;line-height:1.45;color:rgba(255,255,255,.42)', txt);
+const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#f97316'];
+function compRow(par, top, color, sw, r) {  // anonymous competitor result (no made-up business names)
+  return $('div', 'abs row', par, `left:0;right:0;top:${top}px;height:112px;padding:0 24px;gap:24px;border-radius:26px`,
+    `<div style="width:72px;height:72px;border-radius:20px;background:${color};opacity:.8;flex:none"></div>
+     <div style="flex:1">${skel(sw, 26)}<div style="margin-top:14px;font-weight:500;font-size:24px;color:#9aa0b2">${STARS} ${r}</div></div>`);
+}
+function usRow(par, top, sub, css = '') {
+  return $('div', 'abs row', par, `left:0;right:0;top:${top}px;height:112px;padding:0 24px;gap:24px;border-radius:26px;${css}`,
+    `<div style="width:72px;height:72px;border-radius:20px;background:${GRAD};flex:none;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:36px">Y</div>
+     <div style="flex:1"><div style="font-weight:700;font-size:36px">Your Business</div><div class="sub" style="font-weight:500;font-size:24px;color:#9aa0b2;margin-top:6px">${sub}</div></div>`);
+}
+function searchCard(p, top, h) {
+  const c = $('div', 'card', p, `left:70px;top:${top}px;width:940px;height:${h}px;overflow:hidden`);
+  $('div', 'row', c, 'height:74px;padding:0 30px;gap:12px;border-bottom:2px solid rgba(255,255,255,.06)',
+    '<span style="width:18px;height:18px;border-radius:50%;background:#ff5f57"></span><span style="width:18px;height:18px;border-radius:50%;background:#febc2e"></span><span style="width:18px;height:18px;border-radius:50%;background:#28c840"></span>');
+  const sb = $('div', 'row', c, 'margin:26px 30px;height:92px;border-radius:46px;background:#0d0e13;border:2px solid rgba(255,255,255,.1);padding:0 34px;gap:20px;font-weight:600;font-size:38px',
+    `${ico('search', 34, '#9aa0b2', 2.6)}<span class="q"></span><span style="width:3px;height:44px;background:#60a5fa;margin-left:-14px"></span>`);
+  tag(c, 'right:30px;top:20px');
+  return {c, q: sb.querySelector('.q')};
+}
+function ripples(par, t0, t1, col, n = 2, period = .9) {  // expanding rings around a ringing phone / map pin
+  const R = Array.from({length: n}, () => $('div', 'abs', par, `inset:0;border-radius:50%;border:4px solid ${col};pointer-events:none`));
+  HOOKS.push(t => R.forEach((r, i) => {
+    const q = ((t - t0) / period + i / n) % 1, on = t >= t0 && t <= t1;
+    r.style.transform = `scale(${1 + q * .9})`; r.style.opacity = on ? (1 - q) * .8 : 0;
+  }));
+}
+function glitchOut(p, g) {
+  K(p, 'x', [g, 0], [g + .05, -28, 'lin'], [g + .1, 22, 'lin'], [g + .15, -14, 'lin'], [g + .2, 10, 'lin'], [g + .25, 0, 'lin']);
+  K(p, 'sk', [g, 0], [g + .05, 9, 'lin'], [g + .1, -7, 'lin'], [g + .15, 5, 'lin'], [g + .25, 0, 'lin']);
+  sfx(g, 'glitch');
+}
+
+// ---------------------------------------------------------------- scenes (one per VO line)
+const S = {};
+S.hook = (p, l, t0) => {
+  const w = l.w;
+  K($('div', 'abs', p, 'left:90px;top:330px;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(99,102,241,.3),transparent 62%)'), 'o', [0, .55], [w[3], 1]);
+  const h = headline(p, 'Want to rank | *#1 on Google?*', [-.24, w[1], w[2], w[3], w[5], w[6]], 560, 132);
+  K(h.words[3], 's', [w[3] - .06, 1.6], [w[3] + .4, 1, 'back']); sfx(w[3], 'pop', 6);
+  const sb = $('div', 'abs row', p, 'left:110px;top:1000px;width:860px;height:112px;border-radius:56px;background:rgba(13,14,19,.92);border:2px solid rgba(255,255,255,.12);padding:0 40px;gap:22px;font-weight:600;font-size:42px;box-shadow:0 30px 90px rgba(0,0,0,.6)',
+    `${ico('search', 38, '#9aa0b2', 2.6)}<span class="q"></span><span class="cur" style="width:3px;height:48px;background:#60a5fa;margin-left:-16px"></span>`);
+  typeText(sb.querySelector('.q'), 'plumber near me', .3, 1.25);
+  const cur = sb.querySelector('.cur'); HOOKS.push(t => { cur.style.opacity = t > .3 && t < 1.3 ? 1 : (Math.floor(t * 2.4) % 2 ? .15 : 1); });
+  const dd = $('div', 'abs', p, 'left:150px;top:1136px;width:780px;padding:16px 0;border-radius:30px;background:rgba(20,21,28,.92);border:2px solid rgba(255,255,255,.08)');
+  [[340, '#3b82f6'], [280, '#8b5cf6'], [310, '#06b6d4']].forEach(([sw, c], i) => {
+    const r = $('div', 'row', dd, 'height:78px;padding:0 34px;gap:22px', `${ico('map-pin', 30, c, 2.4)}${skel(sw, 22, .14)}`);
+    reveal(r, w[5] + i * .06, .25, 14);
+  });
+  reveal(dd, w[5] - .08, .25, 20);
+};
+
+S.search = (p, l, t0) => {
+  const w = l.w;
+  note(p);
+  headline(p, 'Your customers | are *searching.*', w, 250, 104);
+  const {c, q} = searchCard(p, 540, 880);
+  slide(c, t0 + .02, 0, 120, .5);
+  typeText(q, 'plumber near me', t0 + .1, t0 + .6);
+  const list = $('div', 'abs', c, 'left:30px;right:30px;top:226px;bottom:20px');
+  [[330, '4.9'], [260, '4.8'], [300, '4.8']].forEach(([sw, r], i) => reveal(compRow(list, i * 126, COLORS[i], sw, r), t0 + .3 + i * .08, .25, 20));
+  const dv = $('div', 'abs row', list, 'left:0;right:0;top:388px;height:60px;gap:22px;font-weight:700;font-size:22px;letter-spacing:.24em;color:rgba(255,255,255,.34)',
+    '<span style="flex:1;height:2px;background:rgba(255,255,255,.08)"></span>PAGE 4<span style="flex:1;height:2px;background:rgba(255,255,255,.08)"></span>');
+  reveal(dv, w[2] - .05, .3, 10);
+  const us = usRow(list, 466, 'No reviews yet · Hours unknown', 'border:3px solid rgba(239,68,68,.75);background:rgba(239,68,68,.08);box-shadow:0 0 50px rgba(239,68,68,.22)');
+  $('div', 'pill', us, 'background:rgba(239,68,68,.16);color:#ff7b7b;font-size:26px;padding:10px 20px', 'Page 4');
+  reveal(us, w[3] - .06, .3, 24); sfx(w[3], 'tick', 3);
+};
+
+S.buried = (p, l, t0, t1) => {
+  const w = l.w;
+  note(p);
+  headline(p, 'Not on top? | They call *someone else.*', w, 250, 100);
+  const call = $('div', 'card', p, 'left:110px;top:560px;width:860px;padding:44px 48px 48px');
+  call.innerHTML = `<div class="row" style="gap:18px;font-weight:700;font-size:30px;color:#4ade80"><span style="width:16px;height:16px;border-radius:50%;background:#4ade80;box-shadow:0 0 14px #4ade80"></span>Calling the top result…</div>
+    <div class="row" style="margin-top:40px;gap:36px"><div class="ph" style="position:relative;width:150px;height:150px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#15803d);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 0 60px rgba(34,197,94,.5)"><div class="ic">${ico('phone', 68, '#fff', 2.2)}</div></div>
+    <div style="flex:1">${skel(380, 34, .22)}<div style="margin-top:18px">${skel(250, 24, .12)}</div><div style="margin-top:22px;font-weight:600;font-size:28px;color:#9aa0b2">${STARS} #1 on the map</div></div></div>`;
+  tag(call, 'right:30px;top:30px');
+  slide(call, t0 + .02, 0, 120, .5);
+  const ph = call.querySelector('.ph'), ic = call.querySelector('.ic'), tr = w[3] - .05;
+  ripples(ph, tr, t1, 'rgba(74,222,128,.75)');
+  HOOKS.push(t => { ic.style.transform = t > tr && t < t1 ? `rotate(${Math.sin(t * 46) * 12}deg)` : 'none'; });
+  sfx(w[4], 'tick', 1); sfx(w[4] + .2, 'tick', 1);
+  const you = $('div', 'card', p, 'left:110px;top:1080px;width:860px;height:150px');
+  usRow(you, 19, 'Page 4 · <span style="color:#ff7b7b">phone silent</span>', 'left:20px;right:20px');
+  reveal(you, w[5] - .05, .3, 30); K(you, 'o', [w[6] + .15, 1], [w[6] + .45, .5]);
+  glitchOut(p, t1 - .3);
+};
+
+S.meet = (p, l, t0) => {
+  const burst = $('div', 'abs', p, 'left:-460px;top:-60px;width:2000px;height:2000px;border-radius:50%;background:radial-gradient(circle,rgba(170,190,255,.6) 0%,rgba(120,90,255,.28) 22%,transparent 58%)');
+  K(burst, 's', [t0, .1], [t0 + .8, 1.25]); K(burst, 'o', [t0, 1], [t0 + 1, 0]);
+  const ring = $('div', 'abs', p, 'left:240px;top:640px;width:600px;height:600px;border-radius:50%;border:5px solid rgba(170,185,255,.8);box-shadow:0 0 60px rgba(140,120,255,.9),inset 0 0 60px rgba(140,120,255,.6)');
+  K(ring, 's', [t0, .15], [t0 + .9, 2.8]); K(ring, 'o', [t0, 1], [t0 + .9, 0]);
+  K($('div', 'abs', p, 'left:90px;top:390px;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(80,100,255,.32),transparent 62%)'), 'o', [t0, 0], [t0 + .5, 1]);
+  flash(t0, .75); shake(t0, 16); sfx(t0, 'drop'); sfx(t0, 'impact', 1);
+  const [n, neqo, dig] = logo(p, 380, 1), w = l.w;
+  K(n, 'o', [w[0] - .05, 0], [w[0] + .1, 1]); K(n, 's', [w[0] - .05, .4], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 20], [w[0] + .25, 0]);
+  reveal(neqo, w[0] + .12, .4, 40); K(neqo, 'sx', [w[0] + .12, 1.12], [w[0] + .55, 1]);
+  K(dig, 'o', [w[1] - .05, 0], [w[1] + .2, 1]); K(dig, 'sx', [w[1] - .05, 1.35], [w[1] + .45, 1]);
+  reveal($('div', 'abs', p, 'left:0;right:0;top:1130px;text-align:center;font-weight:600;font-size:44px;color:#b6bccb', 'fixes that, with'), w[2] - .05);
+  const u = $('div', 'abs row', p, 'left:0;right:0;top:1215px;justify-content:center');
+  pop($('div', '', u, `padding:4px;border-radius:999px;background:${GRAD};box-shadow:0 0 60px rgba(139,92,246,.55)`,
+    `<div class="row" style="background:#0b0c14;border-radius:999px;padding:20px 56px 20px 44px;gap:22px;font-weight:800;font-size:54px;letter-spacing:.22em">${ico('map-pin', 46, '#ec4899', 2.6)}LOCAL SEO</div>`), w[5] - .04, .3, 5);
+  flash(w[5], .25);
+};
+
+S.profile = (p, l, t0) => {
+  const w = l.w;
+  note(p);
+  headline(p, 'Your *Google Business* | *Profile,* set up right.', w, 240, 94);
+  const c = $('div', 'card', p, 'left:90px;top:520px;width:900px;padding:40px 44px 40px');
+  const btn = (i, t) => `<div class="pill" style="flex:1;justify-content:center;gap:12px;background:rgba(96,165,250,.13);color:#93c5fd;font-size:28px;padding:20px 0">${ico(i, 28, '#93c5fd', 2.4)}${t}</div>`;
+  c.innerHTML = `<div class="row" style="gap:26px"><div style="width:112px;height:112px;border-radius:28px;background:${GRAD};display:flex;align-items:center;justify-content:center;font-weight:900;font-size:56px;flex:none">Y</div>
+      <div style="flex:1"><div style="font-weight:800;font-size:46px;letter-spacing:-.02em">Your Business</div>
+      <div style="font-weight:500;font-size:27px;color:#9aa0b2;margin-top:6px">Plumbing service · <span style="color:#4ade80">Open now</span></div>
+      <div style="font-weight:600;font-size:27px;margin-top:6px">${STARS} <span style="color:#cdd2e0">4.9</span></div></div></div>
+    <div class="row" style="gap:16px;margin-top:34px">${btn('phone', 'Call')}${btn('map-pin', 'Directions')}${btn('globe', 'Website')}</div>
+    <div class="map" style="position:relative;margin-top:30px;height:210px;border-radius:24px;overflow:hidden;background:#0d1220;
+      background-image:linear-gradient(rgba(96,165,250,.09) 2px,transparent 2px),linear-gradient(90deg,rgba(96,165,250,.09) 2px,transparent 2px);background-size:56px 56px">
+      <div style="position:absolute;left:-40px;top:96px;width:1000px;height:18px;background:rgba(148,163,184,.2);transform:rotate(-8deg)"></div>
+      <div style="position:absolute;left:470px;top:-30px;width:16px;height:300px;background:rgba(148,163,184,.16);transform:rotate(14deg)"></div>
+      <div class="pin" style="position:absolute;left:378px;top:46px;width:56px;height:56px">${ico('map-pin', 56, '#ec4899', 2.6)}</div></div>`;
+  tag(c, 'right:28px;top:28px');
+  slide(c, t0 + .02, 0, 120, .5);
+  const pin = c.querySelector('.pin'); K(pin, 'y', [t0 + .3, -40], [t0 + .6, 0, 'back']); K(pin, 'o', [t0 + .3, 0], [t0 + .4, 1]);
+  const chips = $('div', 'abs row', p, 'left:90px;right:90px;top:1150px;flex-wrap:wrap;justify-content:center;gap:16px');
+  ['Hours', 'Photos', 'Services', 'Service area'].forEach((s, i) =>
+    pop($('div', 'pill', chips, 'gap:12px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);font-weight:600;font-size:32px;padding:16px 28px', `${ico('circle-check', 30, '#4ade80', 2.6)}${s}`), w[4] + i * .09, .5, i));
+};
+
+S.site = (p, l, t0) => {
+  const w = l.w;
+  note(p);
+  headline(p, 'A website | *built to rank.*', w, 250, 112);
+  const ph = $('div', 'abs', p, 'left:440px;top:500px;width:470px;height:930px;border-radius:72px;background:#0d0e13;border:3px solid #2c2e3a;padding:15px;box-shadow:0 60px 140px rgba(0,0,0,.75)',
+   `<div style="position:relative;height:100%;border-radius:58px;background:#f6f7fb;overflow:hidden;color:#0f172a">
+      <div class="row" style="justify-content:space-between;padding:22px 36px 0;font-weight:700;font-size:21px">9:41<span style="width:110px;height:28px;border-radius:20px;background:#0d0e13"></span><span style="letter-spacing:2px">•••</span></div>
+      <div class="row" style="padding:22px 28px 8px;gap:14px"><div style="width:52px;height:52px;border-radius:15px;background:${GRAD};color:#fff;font-weight:800;font-size:28px;display:flex;align-items:center;justify-content:center">Y</div><div style="font-weight:800;font-size:30px;flex:1">Your Business</div><div style="width:32px;height:4px;background:#0f172a;box-shadow:0 10px 0 #0f172a,0 -10px 0 #0f172a"></div></div>
+      <div style="margin:10px 28px 0;display:inline-block;background:#dcfce7;color:#15803d;font-weight:700;font-size:20px;padding:8px 16px;border-radius:999px">● Open now</div>
+      <div style="padding:16px 28px 0;font-weight:800;font-size:54px;line-height:1.02;letter-spacing:-.035em">Fast, honest plumbing. <span style="color:#7c3aed">Day or night.</span></div>
+      <div class="row" style="margin:24px 28px 0;gap:12px"><div class="row" style="flex:1;height:80px;border-radius:20px;background:#1e3a8a;color:#fff;font-weight:700;font-size:26px;justify-content:center;gap:10px">${ico('phone', 26, '#fff', 2.4)}Call now</div><div style="flex:1;height:80px;border-radius:20px;border:3px solid #1e3a8a;color:#1e3a8a;font-weight:700;font-size:26px;display:flex;align-items:center;justify-content:center">Get a quote</div></div>
+      <div style="margin:22px 28px 0;height:250px;border-radius:24px;background:linear-gradient(135deg,#1e3a8a,#6366f1 55%,#ec4899)"></div>
+      <div style="padding:18px 28px 0;font-weight:700;font-size:23px">${STARS} Loved by local customers</div>
+    </div>`);
+  tag(ph, 'right:44px;top:92px;color:#475569;background:rgba(15,23,42,.06);border-color:rgba(15,23,42,.15)');
+  slide(ph, t0 + .02, 0, 300, .6);
+  [['phone', 'Call-now button'], ['file-text', 'Quote requests'], ['lock', 'Hosting &amp; security']].forEach(([i, s], k) => {
+    const c = $('div', 'card row', p, `left:60px;top:${700 + k * 170}px;padding:24px 30px;gap:18px;border-radius:30px;font-weight:700;font-size:32px`,
+      `<div style="width:62px;height:62px;border-radius:50%;background:${GRAD};display:flex;align-items:center;justify-content:center;flex:none">${ico(i, 30, '#fff', 2.4)}</div>${s}`);
+    slide(c, w[2] + k * .14, -140, 0, .45); sfx(w[2] + k * .14, 'pop', k + 2);
+  });
+};
+
+S.reviews = (p, l, t0) => {
+  const w = l.w, ta = w[3] - .05;
+  note(p);
+  headline(p, 'Review requests | on *autopilot.*', w, 250, 108);
+  const sms = $('div', 'card', p, 'left:110px;top:540px;width:860px;padding:36px 40px 40px');
+  sms.innerHTML = `<div class="row" style="gap:16px;font-weight:700;font-size:28px;color:#cdd2e0">${ico('message-square-text', 32, '#a5b4fc', 2.4)}Text message<span style="font-weight:500;color:#7c8396;margin-left:6px">· now</span></div>
+    <div style="margin-top:26px;max-width:640px;padding:26px 30px;border-radius:30px 30px 30px 8px;background:#262833;font-weight:500;font-size:34px;line-height:1.35">Thanks for choosing Your Business! Mind leaving a quick review?</div>
+    <div class="row" style="margin-top:22px;display:inline-flex;gap:12px;padding:18px 30px;border-radius:999px;background:${GRAD};font-weight:800;font-size:30px">${ico('star', 28, '#fff', 2.6)}Leave a review</div>`;
+  tag(sms, 'right:30px;top:32px');
+  slide(sms, t0 + .02, 0, 120, .5); sfx(t0 + .2, 'pop', 2);
+  const tg = $('div', 'card row', p, 'left:110px;top:1035px;width:860px;height:140px;padding:0 40px;gap:20px',
+    `${ico('send', 36, '#a5b4fc', 2.4)}<div style="flex:1"><div style="font-weight:700;font-size:34px">Auto-send review requests</div><div style="font-weight:500;font-size:25px;color:#9aa0b2;margin-top:4px">By text + email, after every job</div></div>
+     <div style="position:relative;width:118px;height:66px;border-radius:33px;background:#3a3d4a;flex:none"><div class="on" style="position:absolute;inset:0;border-radius:33px;background:linear-gradient(90deg,#22c55e,#10b981)"></div><div class="kn" style="position:absolute;left:6px;top:6px;width:54px;height:54px;border-radius:50%;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.4)"></div></div>`);
+  reveal(tg, w[1], .3, 24);
+  K(tg.querySelector('.on'), 'o', [ta, 0], [ta + .2, 1]); K(tg.querySelector('.kn'), 'x', [ta, 0], [ta + .25, 52, 'back']); sfx(ta, 'tick', 4);
+  const row = $('div', 'abs row', p, 'left:0;right:0;top:1230px;justify-content:center;gap:18px');
+  for (let i = 0; i < 5; i++) pop($('div', '', row, 'width:86px;height:86px;color:#fbbf24;font-size:86px;line-height:86px;text-align:center;text-shadow:0 0 24px rgba(251,191,36,.6)', '★'), ta + .18 + i * .06, .2, null);
+  sfx(ta + .18, 'shimmer');
+};
+
+S.climb = (p, l, t0) => {
+  const w = l.w, wu = w[5] - .05, RH = 124;
+  note(p, 'Illustrative example. Local SEO is part of the Ultra plan.<br>Rankings vary and aren’t guaranteed.');
+  headline(p, 'Monthly local SEO | pushes you *up the map.*', w, 230, 94);
+  const c = $('div', 'card', p, 'left:70px;top:500px;width:940px;height:640px;overflow:hidden');
+  $('div', 'row', c, 'height:96px;padding:0 34px;gap:18px;border-bottom:2px solid rgba(255,255,255,.06);font-weight:700;font-size:34px', `${ico('map-pin', 34, '#ec4899', 2.6)}plumber near me`);
+  tag(c, 'right:30px;top:30px');
+  slide(c, t0 + .02, 0, 120, .5);
+  const list = $('div', 'abs', c, 'left:30px;right:30px;top:118px;bottom:20px');
+  [[330, '4.8'], [270, '4.8'], [300, '4.7']].forEach(([sw, r], i) => {
+    const row = compRow(list, i * RH, COLORS[i], sw, r); reveal(row, t0 + .2 + i * .06, .25, 20);
+    K(row, 'y', [wu, 0], [wu + .5, RH, 'io']);
+  });
+  const us = usRow(list, 3 * RH, `${STARS} 4.9 · Open now`, 'border:3px solid rgba(96,165,250,.9);background:rgba(59,130,246,.13);box-shadow:0 0 50px rgba(59,130,246,.35)');
+  reveal(us, t0 + .38, .25, 20); K(us, 'y', [wu, 0], [wu + .5, -3 * RH, 'io']); sfx(wu, 'whoosh');
+  const r4 = $('div', 'pill', us, 'background:rgba(255,255,255,.08);color:#9aa0b2;font-size:28px', '#4'); K(r4, 'o', [wu + .25, 1], [wu + .4, 0]);
+  pop($('div', 'abs pill', us, `right:24px;top:30px;background:${GRAD};color:#fff;font-size:30px;padding:10px 24px;box-shadow:0 0 30px rgba(236,72,153,.5)`, '#1'), w[7] - .02, .3, 6);
+  // map with a light beam on your pin
+  const m = $('div', 'abs', p, 'left:70px;top:1170px;width:940px;height:270px;border-radius:30px;overflow:hidden;border:2px solid rgba(255,255,255,.07);background:#090b14');
+  $('div', 'abs', m, 'left:-330px;top:-260px;width:1600px;height:800px;transform:perspective(600px) rotateX(58deg);background-image:linear-gradient(rgba(96,165,250,.22) 2px,transparent 2px),linear-gradient(90deg,rgba(96,165,250,.22) 2px,transparent 2px);background-size:70px 70px');
+  [[150, 140], [300, 70], [700, 110], [820, 180]].forEach(([x, y], i) => reveal($('div', 'abs', m, `left:${x}px;top:${y}px`, ico('map-pin', 40, 'rgba(148,163,184,.55)', 2.4)), t0 + .3 + i * .05, .25, 10));
+  const pinBox = $('div', 'abs', m, 'left:440px;top:150px;width:60px;height:60px');
+  const beam = $('div', 'abs', m, 'left:430px;top:-20px;width:80px;height:200px;background:linear-gradient(0deg,rgba(96,165,250,.85),rgba(139,92,246,.25) 70%,transparent);filter:blur(6px);transform-origin:50% 100%');
+  K(beam, 'o', [w[7] - .05, 0], [w[7] + .15, 1]); K(beam, 's', [w[7] - .05, .3], [w[7] + .4, 1, 'back']);
+  const base = $('div', 'abs', m, 'left:410px;top:170px;width:120px;height:48px;border-radius:50%');
+  ripples(base, w[7], 99, 'rgba(96,165,250,.8)', 2, 1.1);
+  $('div', '', pinBox, '', ico('map-pin', 60, '#ec4899', 2.6));
+  pop(pinBox, t0 + .45, .4, null);
+};
+
+S.first = (p, l, t0) => {
+  const w = l.w, tf = w[2] - .03;
+  note(p);
+  const h = headline(p, 'Be the *first* | they call.', w, 290, 136);
+  K(h.words[2], 's', [tf, 1.5], [tf + .4, 1, 'back']);
+  flash(tf + .02, .5); shake(tf, 12); sfx(tf, 'impact', 2); sfx(tf - 60 / 124, 'stop');
+  const c = $('div', 'card', p, 'left:160px;top:700px;width:760px;padding:50px 40px 54px;text-align:center');
+  c.innerHTML = `<div style="font-weight:600;font-size:30px;color:#9aa0b2;letter-spacing:.06em">Incoming call…</div>
+    <div class="ph" style="position:relative;margin:40px auto 0;width:200px;height:200px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#15803d);display:flex;align-items:center;justify-content:center;box-shadow:0 0 80px rgba(34,197,94,.55)"><div class="ic">${ico('phone', 92, '#fff', 2.2)}</div></div>
+    <div style="margin-top:40px;font-weight:800;font-size:56px;letter-spacing:-.02em">New customer</div>
+    <div class="row" style="margin-top:12px;justify-content:center;gap:12px;font-weight:600;font-size:30px;color:#9aa0b2">${ico('map-pin', 28, '#ec4899', 2.4)}Found you on Google</div>`;
+  tag(c, 'right:30px;top:30px');
+  pop(c, tf, .7, null);
+  const ph = c.querySelector('.ph'), ic = c.querySelector('.ic');
+  ripples(ph, tf + .1, 99, 'rgba(74,222,128,.7)', 3, 1);
+  HOOKS.push(t => { ic.style.transform = t > tf + .1 ? `rotate(${Math.sin(t * 46) * 11}deg)` : 'none'; });
+  sfx(w[4], 'tick', 2); sfx(w[4] + .18, 'tick', 2);
+};
+
+S.end = (p, l, t0) => {
+  const w = l.w;
+  sfx(t0 - .55, 'sweep'); flash(t0, .35); sfx(t0, 'impact', 3);
+  $('div', 'abs', p, 'left:190px;top:200px;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(99,102,241,.35),transparent 64%)');
+  const ring = $('div', 'abs', p, 'left:370px;top:370px;width:340px;height:340px;border-radius:50%;border:4px solid rgba(170,185,255,.55);box-shadow:0 0 50px rgba(140,120,255,.6),inset 0 0 40px rgba(140,120,255,.35)');
+  K(ring, 'o', [w[0] - .05, 0], [w[0] + .2, 1]); K(ring, 's', [w[0] - .05, .6], [w[0] + .5, 1, 'back']);
+  const n = $('img', 'abs', p, 'left:422px;top:428px;width:236px'); n.src = '../reel/assets/logo_n.png';
+  K(n, 'o', [w[0] - .05, 0], [w[0] + .1, 1]); K(n, 's', [w[0] - .05, .4], [w[0] + .45, 1, 'back']); K(n, 'b', [w[0] - .05, 18], [w[0] + .25, 0]);
+  headline(p, 'NEQO Digital —', [w[0] + .02, w[1], w[1] + .12], 790, 88);
+  headline(p, 'Plans from *$299/mo.*', [w[2], w[3] + .12, w[4] + .17], 905, 96);
+  const nc = headline(p, 'No contracts.', [w[10], w[11]], 1025, 96);
+  K(nc.el, 's', [w[10] - .06, 1.25], [w[10] + .3, 1, 'back']); sfx(w[10], 'thump');
+  const tu = w[11] + .3;
+  const u = $('div', 'abs row', p, 'left:0;right:0;top:1190px;justify-content:center');
+  const pill = $('div', '', u, 'padding:4px;border-radius:999px;background:linear-gradient(90deg,#ff7a3d,#ec4899 35%,#8b5cf6 70%,#3d8bff);box-shadow:0 0 50px rgba(236,72,153,.35)',
+    `<div class="row" style="background:#0b0c13;border-radius:999px;padding:22px 50px;gap:18px;font-weight:800;font-size:56px">${ico('lock', 40, '#4ade80', 2.6)}<span class="url"></span><span class="caret" style="width:4px;height:56px;background:#fff;opacity:.8"></span></div>`);
+  pop(pill, tu - .12, .6, 4);
+  typeText(pill.querySelector('.url'), 'neqodigital.com', tu, tu + .7);
+  K(pill.querySelector('.caret'), 'o', [tu + .85, 1], [tu + 1.05, 0]);
+  sfx(l.t1 + .12, 'outro');  // music resolves on the next beat (make_reel.py music_post)
+};
+
+// ---------------------------------------------------------------- build
+window.build = async () => {
+  await Promise.all([500, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 60px I`)));
+  buildBG();
+  const L = TL.lines, st = L.map((l, i) => i ? l.t0 - .1 : 0);
+  L.forEach((l, i) => { const t1 = i + 1 < L.length ? st[i + 1] : TL.total; S[l.id](scene(st[i], t1), l, st[i], t1); });
+  await Promise.all([...document.images].map(im => im.complete ? 0 : new Promise(r => im.onload = im.onerror = r)));
+  fitAndGrade(); seek(0);
+  return SFX.sort((a, b) => a[0] - b[0]);
+};
+window.seek = seek;
+</script></body></html>
